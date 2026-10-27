@@ -21,6 +21,24 @@
 
 The repository extends the upstream [aiomql](https://github.com/Ichinga-Samuel/aiomql) project. Its Python distribution and import package remain **`aiomql`**. Use the low-level MetaTrader interface directly, or compose symbols, traders, and strategies into a bot.
 
+### Original AIOMQL foundation
+
+Upstream AIOMQL supplies the asynchronous MetaTrader 5 interface and trading framework: bot and strategy execution, symbols and market data, orders and positions, sessions, risk and money management, position tracking, technical indicators, configuration, and CSV/JSON/SQLite trade-result recording. Those general trading APIs remain available here. The Deal Ledger below is a separate historical-deal store; it does not replace the existing trade-result recorder.
+
+## Enhancements in This Repository
+
+| Area | Status | What the current code provides |
+| --- | --- | --- |
+| Deal Ledger | Implemented | Account-scoped historical MT5 deals in a durable SQLite file, with raw payload and normalized fields. |
+| Deal ingestion | Implemented | Explicit, one-shot MT5 history fetch, UTC request bounds, account checks, per-deal persistence, and a structured report. |
+| Replay and audit | Implemented | Insert/duplicate/conflict outcomes; changed payloads leave the original deal intact and create a deduplicated observation. |
+| Repository integrity | Implemented | Re-normalizes and validates the raw payload and derived fields before classifying or writing a deal. |
+| Order submission safeguards | Implemented | A final order check before native submission and explicit propagation of uncertain send outcomes without automatic resubmission. Open-position hedge/stack attempts also have an **in-memory**, per-object guard. |
+| Offline tests | Implemented | Fake-SDK and temporary-SQLite tests for the ledger and execution safeguards; no terminal is needed. |
+| Ledger recovery and reconciliation | Planned / work in progress | No persisted checkpoint, restart recovery, or MT5-to-ledger comparison is implemented. |
+
+The ledger is invoked by application code; it is not wired into `Bot.execute()` as an automatic background service. Only `SQLiteDealRepository` implements the ledger repository contract today. The `DealRepository` protocol provides a boundary for a possible future storage backend, not a second implemented database.
+
 ## Key Features
 
 - **MetaTrader 5 interfaces** — asynchronous terminal calls, plus `MetaTraderSync` and selected synchronous trading components.
@@ -125,6 +143,35 @@ if __name__ == "__main__":
 ```
 
 The context manager initializes the terminal, attempts login using `Config`, and shuts down the connection on exit.
+
+## Deal Ledger
+
+`aiomql.ledger` records **historical MT5 deals**, one row per `(mt5_account_id, deal_ticket)`. An application supplies a stable, persisted `mt5_account_id` UUID and registers its `AccountRef` before ingestion. The repository binds that UUID to `(broker_namespace, server, login)`, rejects conflicting mappings, and scopes deal and observation reads by account. `broker_namespace` is supplied by the application; MT5 does not verify it.
+
+`MetaTraderDealHistorySource` reads raw records through an injected async MetaTrader client. `DealIngestor.ingest_range()` requires timezone-aware bounds, converts the requested range to UTC, checks the current login/server before **and** after fetching, normalizes each record, and writes it through the repository. The source preserves SDK namedtuple/mapping fields, including unknown fields. Normalization creates a canonical raw JSON snapshot and hash alongside typed fields, including `Decimal` values and the original broker time/time-in-milliseconds. It stores the first observation time in UTC; it does not reinterpret broker deal timestamps as UTC datetimes.
+
+The repository re-runs normalization from that raw snapshot and validates the normalized values, types, account ID, deterministic deal ID, hash, and normalizer version before any write or replay decision. This guards the ledger against inconsistent `NormalizedDeal` objects passed directly to the repository.
+
+| Same account and deal ticket | `ingest()` outcome | Stored result |
+| --- | --- | --- |
+| New ticket | `INSERTED` | Insert the deal and its original raw payload. |
+| Existing ticket, same canonical payload | `DUPLICATE` | Keep the original row; add nothing. |
+| Existing ticket, changed canonical payload | `CONFLICT` | Keep the original row; store the changed raw payload as a `DealObservation`, once per distinct payload hash. |
+
+Tickets are unique **within an MT5 account**, so the same ticket can exist in different accounts. Distinct deal tickets sharing an order ticket or position ID are stored independently, including partial fills. Order and position tickets are indexed lookup fields, not unique ledger records.
+
+Each ingestion call returns an `IngestionReport` with `retrieved`, `normalized`, `inserted`, `duplicates`, `conflicts`, `invalid`, and stage-specific errors:
+
+| Status | Meaning |
+| --- | --- |
+| `SUCCESS` | A non-empty batch was processed without errors; duplicate and conflict outcomes can still be present. |
+| `SUCCESS_EMPTY` | The source returned an empty deal batch after both account checks. |
+| `PARTIAL` | Some records failed normalization, while at least one record was normalized and classified by storage. |
+| `FAILED` | An account/fetch/storage failure occurred, or every fetched record was invalid. |
+
+Writes commit per deal, rather than as one whole-batch transaction. A later storage failure or cancellation can leave earlier deals committed; the report preserves completed counters on storage failure, while cancellation propagates to the caller. Replaying a range is safe for identical deals because of the account/ticket uniqueness rule, but there is no automatic retry or durable progress checkpoint. The before/after account checks cannot detect an account switch that changes away and back during the fetch.
+
+The ledger requires a file-backed SQLite path and an explicitly registered account. See the [ledger source](src/aiomql/ledger/) and [offline tests](tests/offline/) for the API contracts. Run the offline suite below to work on ingestion without a terminal.
 
 ## Building a Trading Bot
 
@@ -301,10 +348,40 @@ src/aiomql/
 │   ├── result.py          # CSV, JSON, and SQLite result recording
 │   └── sync/              # Selected synchronous trading components
 ├── contrib/               # Strategies, symbols, traders, and trackers
-├── ledger/                # Deal normalization, ingestion, and SQLite storage
+├── ledger/                # Historical-deal source, normalization, ingestion,
+│                          # repository contract, and SQLite implementation
 ├── ta_libs/               # Bundled pandas-ta-classic implementation
 └── utils/                 # Decorators, price helpers, and process pools
 ```
+
+### Execution and ledger flow
+
+```mermaid
+flowchart TD
+    Bot --> Strategy
+    Strategy --> Trader
+    Trader --> Order
+    Order --> MetaTrader[MetaTrader interface]
+    MetaTrader --> MT5[MT5 API / terminal]
+
+    MT5 -- history_deals_get --> Source[MetaTraderDealHistorySource]
+    Source --> Ingestor[DealIngestor]
+    Ingestor --> Normalizer[normalize_deal]
+    Normalizer --> Repository[DealRepository protocol]
+    Repository --> SQLite[SQLiteDealRepository]
+    SQLite --> Tables[(ledger_accounts / deals / deal_observations)]
+```
+
+The trading path and history-ingestion path are separate. Application code constructs the source and ingestor and calls `ingest_range()` explicitly; the diagram does not imply that a bot automatically ingests its trades.
+
+## Roadmap / Work in Progress
+
+The next ledger phase is planned, **not implemented**:
+
+- Ingestion checkpoints to record verified progress.
+- Crash/restart recovery and safe replay across interrupted ranges.
+- MT5 ↔ Deal Ledger reconciliation, including missing or inconsistent deal detection.
+- Evaluation of PostgreSQL as a possible production ledger backend. There is no PostgreSQL, MySQL, or SQL Server ledger implementation in this repository.
 
 ## API Documentation
 
@@ -323,6 +400,8 @@ python -B -m unittest discover -s tests/offline -p 'test_*.py' -v
 ```
 
 This command limits discovery to `tests/offline` and avoids the live pytest fixtures. See the [offline test guide](tests/offline/README.md).
+
+The ledger tests cover successful and empty ingestion, invalid records and fetch responses, account mismatch before/after fetch, account isolation, identical replay, changed-payload observations, partial fills sharing an order/position, storage failures, UTC request conversion and boundary records, cancellation propagation, and repository re-validation of raw payload and derived fields. They use fake history sources and temporary SQLite files.
 
 ### Terminal-connected Tests
 
