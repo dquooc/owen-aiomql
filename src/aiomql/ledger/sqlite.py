@@ -1,7 +1,7 @@
 """Local SQLite implementation of the account-scoped Deal Ledger."""
 
 from contextlib import contextmanager, closing
-from dataclasses import fields
+from dataclasses import fields, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 import json
@@ -10,7 +10,7 @@ import sqlite3
 from typing import Iterator
 from uuid import UUID, uuid5
 
-from .models import AccountRef, NormalizedDeal
+from .models import AccountRef, LedgerCheckpoint, NormalizedDeal
 from .normalize import NORMALIZER_VERSION, normalize_deal
 from .repository import AccountIdentityError, DealObservation, IngestOutcome, IngestResult
 
@@ -75,6 +75,14 @@ class SQLiteDealRepository:
                     company_observed TEXT NOT NULL,
                     trade_mode INTEGER NOT NULL,
                     UNIQUE (broker_namespace, server, login)
+                )
+            """,
+            """
+                CREATE TABLE IF NOT EXISTS ledger_checkpoints (
+                    mt5_account_id TEXT NOT NULL PRIMARY KEY
+                        REFERENCES ledger_accounts(mt5_account_id),
+                    completed_through TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
                 )
             """,
             """
@@ -174,6 +182,72 @@ class SQLiteDealRepository:
                 "SELECT * FROM ledger_accounts WHERE broker_namespace = ? AND server = ? AND login = ?",
                 (broker_namespace, server, str(login))).fetchone()
         return self._account_from_row(row) if row is not None else None
+
+    @staticmethod
+    def _checkpoint_from_row(row: sqlite3.Row) -> LedgerCheckpoint:
+        return LedgerCheckpoint(
+            mt5_account_id=UUID(row["mt5_account_id"]),
+            completed_through=datetime.fromisoformat(row["completed_through"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]))
+
+    def get_checkpoint(self, mt5_account_id: UUID) -> LedgerCheckpoint | None:
+        """Read a registered account's checkpoint without creating or repairing it.
+
+        Unknown accounts raise AccountIdentityError. Invalid persisted timestamps
+        propagate decoding/model errors rather than being treated as missing.
+        """
+        account_id = self._account_id(mt5_account_id)
+        if mt5_account_id.int == 0:
+            raise ValueError("mt5_account_id cannot be the nil UUID")
+        with closing(self._connect()) as conn:
+            row = conn.execute(
+                "SELECT a.mt5_account_id, c.mt5_account_id AS checkpoint_account_id, "
+                "c.completed_through, c.updated_at FROM ledger_accounts AS a "
+                "LEFT JOIN ledger_checkpoints AS c ON c.mt5_account_id = a.mt5_account_id "
+                "WHERE a.mt5_account_id = ?", (account_id,)).fetchone()
+        if row is None:
+            raise AccountIdentityError("account is not registered in this ledger")
+        if row["checkpoint_account_id"] is None:
+            return None
+        return self._checkpoint_from_row(row)
+
+    def advance_checkpoint(self, account: AccountRef, completed_through: datetime) -> LedgerCheckpoint:
+        """Create or advance a checkpoint; equal boundaries leave storage unchanged.
+
+        Account registration/identity is checked without registration side effects.
+        Compare canonical UTC instants inside the write transaction. Backward
+        requests are rejected temporarily pending final regression semantics.
+        """
+        if not isinstance(account, AccountRef):
+            raise TypeError("account must be an AccountRef")
+        checkpoint = LedgerCheckpoint(account.mt5_account_id, completed_through, datetime.now(timezone.utc))
+        account_id = str(checkpoint.mt5_account_id)
+        with self._write() as conn:
+            registered = conn.execute(
+                "SELECT * FROM ledger_accounts WHERE mt5_account_id = ?", (account_id,)).fetchone()
+            if registered is None:
+                raise AccountIdentityError("account is not registered in this ledger")
+            if self._identity(self._account_from_row(registered)) != self._identity(account):
+                raise AccountIdentityError("supplied account context differs from persisted identity")
+            existing = conn.execute(
+                "SELECT * FROM ledger_checkpoints WHERE mt5_account_id = ?", (account_id,)).fetchone()
+            if existing is not None:
+                current = self._checkpoint_from_row(existing)
+                if checkpoint.completed_through == current.completed_through:
+                    return current
+                if checkpoint.completed_through < current.completed_through:
+                    raise NotImplementedError("backward checkpoint requests are not implemented yet")
+                checkpoint = replace(checkpoint, updated_at=datetime.now(timezone.utc))
+                conn.execute(
+                    "UPDATE ledger_checkpoints SET completed_through = ?, updated_at = ? WHERE mt5_account_id = ?",
+                    (checkpoint.completed_through.isoformat(timespec="microseconds"),
+                     checkpoint.updated_at.isoformat(timespec="microseconds"), account_id))
+            else:
+                conn.execute(
+                    "INSERT INTO ledger_checkpoints (mt5_account_id, completed_through, updated_at) VALUES (?, ?, ?)",
+                    (account_id, checkpoint.completed_through.isoformat(timespec="microseconds"),
+                     checkpoint.updated_at.isoformat(timespec="microseconds")))
+        return checkpoint
 
     @staticmethod
     def _deal_values(deal: NormalizedDeal) -> tuple:

@@ -7,11 +7,38 @@ import json
 from typing import Any, Protocol
 from uuid import UUID
 
-from .models import AccountRef, NormalizedDeal
+from .models import AccountRef, LedgerCheckpoint, NormalizedDeal
 
 
 class AccountIdentityError(ValueError):
     """A supplied account identity conflicts with the persisted account mapping."""
+
+
+class CheckpointRegressionError(ValueError):
+    """The requested completed boundary precedes the persisted checkpoint."""
+
+
+class CheckpointRepository(Protocol):
+    """Independent storage boundary for account-scoped durable checkpoints.
+
+    Implementations require registered accounts and never create them implicitly.
+    Unknown accounts or conflicting write identities raise AccountIdentityError.
+    """
+
+    def get_checkpoint(self, mt5_account_id: UUID) -> LedgerCheckpoint | None:
+        """Read one account's checkpoint; None means registered but no checkpoint."""
+        ...
+
+    def advance_checkpoint(self, account: AccountRef, completed_through: datetime) -> LedgerCheckpoint:
+        """Create or advance a checkpoint using an aware completed boundary.
+
+        Verify the registered account identity. Equal instants are idempotent,
+        preserving updated_at; earlier instants raise CheckpointRegressionError.
+        Generate updated_at in UTC on creation/advancement and return only after
+        a durable commit. Compare/write atomically so concurrent callers cannot
+        regress progress. Failures propagate without reporting advancement.
+        """
+        ...
 
 
 class IngestOutcome(StrEnum):

@@ -5,7 +5,7 @@ not create one: assigning a new UUID on restart would split one account's ledger
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 import json
 from typing import Any
@@ -38,6 +38,31 @@ class AccountRef:
             raise ValueError("login must be a positive integer")
         if isinstance(self.trade_mode, bool) or not isinstance(self.trade_mode, int):
             raise TypeError("trade_mode must be an integer code")
+
+
+@dataclass(frozen=True, slots=True)
+class LedgerCheckpoint:
+    """An explicitly verified completed boundary for an existing ledger account.
+
+    completed_through includes the boundary and is never inferred from deal or
+    broker execution times. updated_at records checkpoint creation/advancement;
+    it is audit metadata and may precede completed_through.
+    """
+
+    mt5_account_id: UUID
+    completed_through: datetime
+    updated_at: datetime
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.mt5_account_id, UUID):
+            raise TypeError("mt5_account_id must be a persisted UUID")
+        if self.mt5_account_id.int == 0:
+            raise ValueError("mt5_account_id cannot be the nil UUID")
+        for name in ("completed_through", "updated_at"):
+            value = getattr(self, name)
+            if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError(f"{name} must be a timezone-aware datetime")
+            object.__setattr__(self, name, value.astimezone(timezone.utc))
 
 
 @dataclass(frozen=True, slots=True)
