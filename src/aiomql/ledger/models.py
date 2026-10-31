@@ -66,6 +66,23 @@ class LedgerCheckpoint:
 
 
 @dataclass(frozen=True, slots=True)
+class RecoveryRange:
+    """An aware UTC history interval; equal endpoints are valid."""
+
+    from_time: datetime
+    to_time: datetime
+
+    def __post_init__(self) -> None:
+        for name in ("from_time", "to_time"):
+            value = getattr(self, name)
+            if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError(f"{name} must be a timezone-aware datetime")
+            object.__setattr__(self, name, value.astimezone(timezone.utc))
+        if self.from_time > self.to_time:
+            raise ValueError("from_time must not be after to_time")
+
+
+@dataclass(frozen=True, slots=True)
 class NormalizedDeal:
     id: UUID
     mt5_account_id: UUID
