@@ -136,7 +136,7 @@ class LedgerCheckpointCreateTests(unittest.TestCase):
         before = self.snapshot()
         # A1.6 supersedes rejection of equal/forward boundaries; backward
         # rejection must still preserve the complete original checkpoint.
-        with self.assertRaises(NotImplementedError):
+        with self.assertRaises(ledger.CheckpointRegressionError):
             self.repo.advance_checkpoint(self.account, self.completed - timedelta(days=1))
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(self.repo.get_checkpoint(self.account.mt5_account_id), original)

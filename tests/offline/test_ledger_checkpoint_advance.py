@@ -163,7 +163,7 @@ class LedgerCheckpointAdvanceTests(unittest.TestCase):
 
     def test_backward_request_keeps_checkpoint_unchanged(self):
         before = self.snapshot()
-        with self.assertRaises(NotImplementedError):
+        with self.assertRaises(ledger.CheckpointRegressionError):
             self.repo.advance_checkpoint(self.account, self.start - timedelta(minutes=1))
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(self.repo.get_checkpoint(self.account.mt5_account_id), self.initial)

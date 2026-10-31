@@ -12,7 +12,7 @@ from uuid import UUID, uuid5
 
 from .models import AccountRef, LedgerCheckpoint, NormalizedDeal
 from .normalize import NORMALIZER_VERSION, normalize_deal
-from .repository import AccountIdentityError, DealObservation, IngestOutcome, IngestResult
+from .repository import AccountIdentityError, CheckpointRegressionError, DealObservation, IngestOutcome, IngestResult
 
 
 _OBSERVATION_NAMESPACE = UUID("a3aa2b42-8d9d-41a5-8763-a593f60851d5")
@@ -215,8 +215,8 @@ class SQLiteDealRepository:
         """Create or advance a checkpoint; equal boundaries leave storage unchanged.
 
         Account registration/identity is checked without registration side effects.
-        Compare canonical UTC instants inside the write transaction. Backward
-        requests are rejected temporarily pending final regression semantics.
+        Compare canonical UTC instants inside the write transaction. Earlier
+        boundaries raise CheckpointRegressionError without changing storage.
         """
         if not isinstance(account, AccountRef):
             raise TypeError("account must be an AccountRef")
@@ -236,7 +236,10 @@ class SQLiteDealRepository:
                 if checkpoint.completed_through == current.completed_through:
                     return current
                 if checkpoint.completed_through < current.completed_through:
-                    raise NotImplementedError("backward checkpoint requests are not implemented yet")
+                    raise CheckpointRegressionError(
+                        f"checkpoint regression for account {account_id}: "
+                        f"current={current.completed_through.isoformat(timespec='microseconds')}, "
+                        f"requested={checkpoint.completed_through.isoformat(timespec='microseconds')}")
                 checkpoint = replace(checkpoint, updated_at=datetime.now(timezone.utc))
                 conn.execute(
                     "UPDATE ledger_checkpoints SET completed_through = ?, updated_at = ? WHERE mt5_account_id = ?",
