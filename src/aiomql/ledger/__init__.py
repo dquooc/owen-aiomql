@@ -7,10 +7,11 @@ from .repository import CheckpointRegressionError, CheckpointRepository
 from .sqlite import SQLiteDealRepository
 from .source import DealHistoryBatch, DealHistorySource, HistoryFetchError, MetaTraderDealHistorySource, SessionAccount
 from .ingestion import DealIngestor, IngestionError, IngestionReport, IngestionStage, IngestionStatus
+from .recovery import plan_recovery_range
 
 __all__ = ["AccountRef", "LedgerCheckpoint", "NormalizedDeal", "RecoveryRange", "DealNormalizationError", "NORMALIZER_VERSION", "normalize_deal",
            "AccountIdentityError", "DealObservation", "DealRepository", "IngestOutcome", "IngestResult",
            "CheckpointRegressionError", "CheckpointRepository",
            "SQLiteDealRepository", "DealHistoryBatch", "DealHistorySource", "HistoryFetchError",
            "MetaTraderDealHistorySource", "SessionAccount", "DealIngestor", "IngestionError",
-           "IngestionReport", "IngestionStage", "IngestionStatus"]
+           "IngestionReport", "IngestionStage", "IngestionStatus", "plan_recovery_range"]

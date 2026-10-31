@@ -1,8 +1,37 @@
-"""Pure boundary helpers for future recovery planning."""
+"""Pure recovery range planning without clock reads or I/O."""
 
 from datetime import datetime, timedelta
 
 from .models import LedgerCheckpoint, RecoveryRange
+
+
+def plan_recovery_range(
+    *,
+    checkpoint: LedgerCheckpoint | None,
+    current_time: datetime,
+    overlap: timedelta,
+    bootstrap_start: datetime | None = None,
+) -> RecoveryRange:
+    """Plan checkpoint replay or explicit bootstrap through the supplied time.
+
+    Validate checkpoint type, current time, then non-negative overlap in order.
+    With a checkpoint, bootstrap_start is ignored entirely. Otherwise an explicit
+    bootstrap start is required, and overlap does not alter that initial range.
+    Branch ordering errors and conversion/arithmetic overflow propagate.
+    """
+    if checkpoint is not None and not isinstance(checkpoint, LedgerCheckpoint):
+        raise TypeError("checkpoint must be a LedgerCheckpoint or None")
+    canonical_current_time = RecoveryRange(from_time=current_time, to_time=current_time).from_time
+    if not isinstance(overlap, timedelta):
+        raise TypeError("overlap must be a timedelta")
+    if overlap < timedelta(0):
+        raise ValueError("overlap must not be negative")
+
+    if checkpoint is None:
+        if bootstrap_start is None:
+            raise ValueError("bootstrap_start is required when checkpoint is None")
+        return _plan_bootstrap_range(bootstrap_start=bootstrap_start, current_time=canonical_current_time)
+    return _plan_checkpoint_range(checkpoint=checkpoint, current_time=canonical_current_time, overlap=overlap)
 
 
 def _plan_bootstrap_range(*, bootstrap_start: datetime, current_time: datetime) -> RecoveryRange:
