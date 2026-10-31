@@ -30,12 +30,13 @@ Upstream AIOMQL supplies the asynchronous MetaTrader 5 interface and trading fra
 | Area | Status | What the current code provides |
 | --- | --- | --- |
 | Deal Ledger | Implemented | Account-scoped historical MT5 deals in a durable SQLite file, with raw payload and normalized fields. |
+| Durable ledger checkpoint | Implemented | One SQLite checkpoint per registered account, monotonic advancement, idempotent same-boundary replay, and restart durability. |
 | Deal ingestion | Implemented | Explicit, one-shot MT5 history fetch, UTC request bounds, account checks, per-deal persistence, and a structured report. |
 | Replay and audit | Implemented | Insert/duplicate/conflict outcomes; changed payloads leave the original deal intact and create a deduplicated observation. |
 | Repository integrity | Implemented | Re-normalizes and validates the raw payload and derived fields before classifying or writing a deal. |
 | Order submission safeguards | Implemented | A final order check before native submission and explicit propagation of uncertain send outcomes without automatic resubmission. Open-position hedge/stack attempts also have an **in-memory**, per-object guard. |
 | Offline tests | Implemented | Fake-SDK and temporary-SQLite tests for the ledger and execution safeguards; no terminal is needed. |
-| Ledger recovery and reconciliation | Planned / work in progress | No persisted checkpoint, restart recovery, or MT5-to-ledger comparison is implemented. |
+| Ledger recovery and reconciliation | Planned / work in progress | Recovery Planner, Recovery Manager, automatic startup recovery, and MT5-to-ledger comparison are not implemented. |
 
 The ledger is invoked by application code; it is not wired into `Bot.execute()` as an automatic background service. Only `SQLiteDealRepository` implements the ledger repository contract today. The `DealRepository` protocol provides a boundary for a possible future storage backend, not a second implemented database.
 
@@ -169,7 +170,9 @@ Each ingestion call returns an `IngestionReport` with `retrieved`, `normalized`,
 | `PARTIAL` | Some records failed normalization, while at least one record was normalized and classified by storage. |
 | `FAILED` | An account/fetch/storage failure occurred, or every fetched record was invalid. |
 
-Writes commit per deal, rather than as one whole-batch transaction. A later storage failure or cancellation can leave earlier deals committed; the report preserves completed counters on storage failure, while cancellation propagates to the caller. Replaying a range is safe for identical deals because of the account/ticket uniqueness rule, but there is no automatic retry or durable progress checkpoint. The before/after account checks cannot detect an account switch that changes away and back during the fetch.
+Writes commit per deal, rather than as one whole-batch transaction. A later storage failure or cancellation can leave earlier deals committed; the report preserves completed counters on storage failure, while cancellation propagates to the caller. Replaying a range is safe for identical deals because of the account/ticket uniqueness rule, but ingestion does not automatically retry or advance a checkpoint. The before/after account checks cannot detect an account switch that changes away and back during the fetch.
+
+`LedgerCheckpoint` stores an account UUID, an inclusive `completed_through` boundary, and a repository-generated `updated_at`. The independent `CheckpointRepository` protocol is implemented by `SQLiteDealRepository`: callers explicitly advance a registered account's checkpoint through a boundary they have verified. Timestamps must be timezone-aware and are normalized to UTC with microseconds preserved. Advancement is transactional and monotonic; equal boundaries return the existing checkpoint without changing its audit time, and earlier boundaries raise `CheckpointRegressionError`. Checkpoints survive repository reopen and process restart. No checkpoint is inferred from stored deals, and checkpoint writes do not register accounts or update their metadata. Reads return `None` for a registered account without a checkpoint and raise `AccountIdentityError` for an unknown account.
 
 The ledger requires a file-backed SQLite path and an explicitly registered account. See the [ledger source](src/aiomql/ledger/) and [offline tests](tests/offline/) for the API contracts. Run the offline suite below to work on ingestion without a terminal.
 
@@ -378,8 +381,8 @@ The trading path and history-ingestion path are separate. Application code const
 
 The next ledger phase is planned, **not implemented**:
 
-- Ingestion checkpoints to record verified progress.
-- Crash/restart recovery and safe replay across interrupted ranges.
+- Recovery Planner and Recovery Manager for crash/restart recovery and safe replay across interrupted ranges; automatic startup recovery is not implemented.
+- Automatic checkpoint advancement from ingestion.
 - MT5 ↔ Deal Ledger reconciliation, including missing or inconsistent deal detection.
 - Evaluation of PostgreSQL as a possible production ledger backend. There is no PostgreSQL, MySQL, or SQL Server ledger implementation in this repository.
 
