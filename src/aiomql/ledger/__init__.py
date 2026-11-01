@@ -11,6 +11,7 @@ from .source import DealHistoryBatch, DealHistorySource, HistoryFetchError, Meta
 from .ingestion import DealIngestor, IngestionError, IngestionReport, IngestionStage, IngestionStatus
 from .recovery import plan_recovery_range
 from .recovery_models import RecoveryOutcome, RecoveryResult
+from .recovery_config import Clock, RecoveryConfig, utc_now
 
 __all__ = ["AccountRef", "LedgerCheckpoint", "NormalizedDeal", "RecoveryRange", "DealNormalizationError", "NORMALIZER_VERSION", "normalize_deal",
            "AccountIdentityError", "DealObservation", "DealRepository", "IngestOutcome", "IngestResult",
@@ -18,4 +19,5 @@ __all__ = ["AccountRef", "LedgerCheckpoint", "NormalizedDeal", "RecoveryRange", 
            "SQLiteDealRepository", "DealHistoryBatch", "DealHistorySource", "HistoryFetchError",
            "MetaTraderDealHistorySource", "SessionAccount", "DealIngestor", "IngestionError",
            "IngestionReport", "IngestionStage", "IngestionStatus", "plan_recovery_range",
-           "RecoveryOutcome", "RecoveryResult", "AccountLookupRepository", "verify_account_identity"]
+           "RecoveryOutcome", "RecoveryResult", "AccountLookupRepository", "verify_account_identity",
+           "RecoveryConfig", "Clock", "utc_now"]
