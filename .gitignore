@@ -76,6 +76,7 @@ target/
 
 # config files
 aiomql.json
+.env
 
 # development 
 terminals/
