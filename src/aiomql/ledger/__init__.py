@@ -12,6 +12,7 @@ from .ingestion import DealIngestor, IngestionError, IngestionReport, IngestionS
 from .recovery import plan_recovery_range
 from .recovery_models import RecoveryOutcome, RecoveryResult
 from .recovery_config import Clock, RecoveryConfig, utc_now
+from .recovery_manager import RecoveryAttempt, RecoveryManager
 
 __all__ = ["AccountRef", "LedgerCheckpoint", "NormalizedDeal", "RecoveryRange", "DealNormalizationError", "NORMALIZER_VERSION", "normalize_deal",
            "AccountIdentityError", "DealObservation", "DealRepository", "IngestOutcome", "IngestResult",
@@ -20,4 +21,4 @@ __all__ = ["AccountRef", "LedgerCheckpoint", "NormalizedDeal", "RecoveryRange", 
            "MetaTraderDealHistorySource", "SessionAccount", "DealIngestor", "IngestionError",
            "IngestionReport", "IngestionStage", "IngestionStatus", "plan_recovery_range",
            "RecoveryOutcome", "RecoveryResult", "AccountLookupRepository", "verify_account_identity",
-           "RecoveryConfig", "Clock", "utc_now"]
+           "RecoveryConfig", "Clock", "utc_now", "RecoveryAttempt", "RecoveryManager"]
