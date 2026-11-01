@@ -14,6 +14,18 @@ class AccountIdentityError(ValueError):
     """A supplied account identity conflicts with the persisted account mapping."""
 
 
+class AccountLookupRepository(Protocol):
+    """Read-only lookup of registered accounts by their exact stable identity.
+
+    Lookup never registers accounts or updates observed metadata. Storage and
+    decoding failures propagate; None means only that the identity is unknown.
+    """
+
+    def resolve_account(self, *, broker_namespace: str, server: str, login: int) -> AccountRef | None:
+        """Return the account registered for this exact broker/server/login tuple."""
+        ...
+
+
 class CheckpointRegressionError(ValueError):
     """The requested completed boundary precedes the persisted checkpoint."""
 
@@ -69,12 +81,10 @@ class DealObservation:
         return json.loads(self.raw_payload_json)
 
 
-class DealRepository(Protocol):
+class DealRepository(AccountLookupRepository, Protocol):
     """A storage boundary; every Deal read and write is scoped to an account."""
 
     def register_account(self, account: AccountRef) -> AccountRef: ...
-
-    def resolve_account(self, *, broker_namespace: str, server: str, login: int) -> AccountRef | None: ...
 
     def ingest(self, account: AccountRef, deal: NormalizedDeal) -> IngestResult: ...
 
