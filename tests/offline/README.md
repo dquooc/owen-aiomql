@@ -12,6 +12,21 @@ fixtures. Do not use unrestricted pytest discovery for this suite:
 `tests/live/conftest.py` has autouse fixtures that log in to MT5 and clean up
 positions with `order_send`.
 
+## RecoveryManager acceptance scope (A3)
+
+The offline suite covers durable per-account checkpoints, pure range planning,
+immutable recovery configuration/results, read-only account preflight, and
+`RecoveryManager.prepare()` / `recover()` with an injected single horizon clock.
+It verifies exact UTC boundaries, failure/cancellation propagation, retained partial
+commits, caller-controlled replay, and no checkpoint creation or advancement.
+Successful or empty ingestion returns `PENDING_RECONCILIATION`; failed or partial
+ingestion returns `FAILED`. These outcomes do not establish completed recovery.
+
+Reconciliation, recovery checkpoint advancement, same-account reconcile/advance
+coordination, automatic startup recovery, and live MT5 recovery validation remain
+unimplemented. PostgreSQL, the Local Engine entrypoint and packaging/`.exe`, and
+the EA bridge are also outside the implemented scope.
+
 ## RecoveryManager concurrency boundary (A3.9)
 
 Same-account concurrency is **CONDITIONALLY SAFE** for the current ingestion-only,

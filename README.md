@@ -32,12 +32,13 @@ Upstream AIOMQL supplies the asynchronous MetaTrader 5 interface and trading fra
 | Deal Ledger | Implemented | Account-scoped historical MT5 deals in a durable SQLite file, with raw payload and normalized fields. |
 | Durable ledger checkpoint | Implemented | One SQLite checkpoint per registered account, monotonic advancement, idempotent same-boundary replay, and restart durability. |
 | Recovery range planning | Implemented | Public `RecoveryRange` and pure `plan_recovery_range()` for explicit bootstrap or checkpoint overlap, with deterministic UTC planning and offline ingestion composability. |
+| RecoveryManager | Implemented; offline verified | Read-only account preflight, checkpoint snapshot, `RecoveryConfig`, injected horizon clock, preparation and one-shot ingestion orchestration. `RecoveryResult` reports pending reconciliation or failure; no checkpoint advancement. |
 | Deal ingestion | Implemented | Explicit, one-shot MT5 history fetch, UTC request bounds, account checks, per-deal persistence, and a structured report. |
 | Replay and audit | Implemented | Insert/duplicate/conflict outcomes; changed payloads leave the original deal intact and create a deduplicated observation. |
 | Repository integrity | Implemented | Re-normalizes and validates the raw payload and derived fields before classifying or writing a deal. |
 | Order submission safeguards | Implemented | A final order check before native submission and explicit propagation of uncertain send outcomes without automatic resubmission. Open-position hedge/stack attempts also have an **in-memory**, per-object guard. |
 | Offline tests | Implemented | Fake-SDK and temporary-SQLite tests for the ledger and execution safeguards; no terminal is needed. |
-| Ledger recovery and reconciliation | Planned / work in progress | Recovery Manager, automatic startup recovery, production MT5 recovery orchestration, and MT5-to-ledger comparison are not implemented. |
+| Reconciliation and recovery completion | Not implemented | MT5-to-ledger comparison, recovery checkpoint advancement, same-account reconcile/advance coordination, automatic startup recovery, and live MT5 recovery validation remain future work. |
 
 The ledger is invoked by application code; it is not wired into `Bot.execute()` as an automatic background service. Only `SQLiteDealRepository` implements the ledger repository contract today. The `DealRepository` protocol provides a boundary for a possible future storage backend, not a second implemented database.
 
@@ -176,6 +177,12 @@ Writes commit per deal, rather than as one whole-batch transaction. A later stor
 `LedgerCheckpoint` stores an account UUID, an inclusive `completed_through` boundary, and a repository-generated `updated_at`. The independent `CheckpointRepository` protocol is implemented by `SQLiteDealRepository`: callers explicitly advance a registered account's checkpoint through a boundary they have verified. Timestamps must be timezone-aware and are normalized to UTC with microseconds preserved. Advancement is transactional and monotonic; equal boundaries return the existing checkpoint without changing its audit time, and earlier boundaries raise `CheckpointRegressionError`. Checkpoints survive repository reopen and process restart. No checkpoint is inferred from stored deals, and checkpoint writes do not register accounts or update their metadata. Reads return `None` for a registered account without a checkpoint and raise `AccountIdentityError` for an unknown account.
 
 `plan_recovery_range()` returns an immutable `RecoveryRange` using explicit `current_time` and non-negative `overlap`. With a checkpoint, it plans from `completed_through - overlap` through `current_time` and ignores `bootstrap_start`. Without a checkpoint, it requires an explicit `bootstrap_start`; overlap is validated but does not shift that start. Inputs must be timezone-aware; output is canonical UTC with microseconds preserved, and equal endpoints are valid. Future boundaries and invalid inputs fail explicitly. Offline tests verify direct composition with `DealIngestor.ingest_range()` using fake sources and temporary SQLite. The planner performs no I/O and never advances checkpoints; ingestion success alone does not establish recovery completion.
+
+`RecoveryManager.prepare()` verifies the registered broker/server/login-to-UUID mapping without registration or metadata updates, loads and validates the account's checkpoint, captures its injected `Clock` exactly once, and calls the planner. Its immutable `RecoveryAttempt` contains the account, checkpoint snapshot, and planned range. Immutable `RecoveryConfig` supplies non-negative overlap and an optional explicit bootstrap start; provided timestamps are canonicalized to UTC with microseconds preserved. The manager reads no horizon clock before identity/checkpoint validation succeeds.
+
+`RecoveryManager.recover()` reuses preparation and passes the exact account/range to `DealIngestor`. Ingestion `SUCCESS` or `SUCCESS_EMPTY` produces `RecoveryOutcome.PENDING_RECONCILIATION`; `FAILED` or `PARTIAL` produces `FAILED`. Successful ingestion does not mean completed recovery. The immutable `RecoveryResult` preserves the returned report and preparation snapshot, with `checkpoint_after = checkpoint_before`. The manager never creates or advances checkpoints, including on empty history or conflicts. Preparation errors, unexpected ingestion exceptions, and cancellation propagate; earlier per-deal commits remain. Retry requires a later caller invocation, which reloads the durable checkpoint and captures a new horizon.
+
+Offline tests cover failures, cancellation, partial persistence, replay/idempotency, and account isolation. Same-account concurrency is **CONDITIONALLY SAFE** only for this ingestion-only/no-advance stage with correctly bound dependencies. Checkpoint monotonicity does not serialize fetch, ingestion, future reconciliation, and advancement; that future flow needs explicit coordination. Offline concurrency evidence does not establish live multi-account MT5 session safety, and before/after guards cannot detect an A -> B -> A switch during fetch. See the [offline concurrency boundary](tests/offline/README.md#recoverymanager-concurrency-boundary-a39).
 
 The ledger requires a file-backed SQLite path and an explicitly registered account. See the [ledger source](src/aiomql/ledger/) and [offline tests](tests/offline/) for the API contracts. Run the offline suite below to work on ingestion without a terminal.
 
@@ -382,13 +389,13 @@ The trading path and history-ingestion path are separate. Application code const
 
 ## Roadmap / Work in Progress
 
-The next ledger phase is planned, **not implemented**:
+The following recovery and engine capabilities are **not implemented**:
 
-- Recovery Manager for crash/restart orchestration and reconciliation coordination; automatic startup recovery and production MT5 recovery orchestration are not implemented.
+- Same-account reconciliation/advancement coordination, automatic startup recovery, and live MT5 recovery validation. Current RecoveryManager support ends at pending reconciliation or failure.
 - Automatic checkpoint advancement after recovery or ingestion.
 - MT5 ↔ Deal Ledger reconciliation, including missing or inconsistent deal detection.
 - Evaluation of PostgreSQL as a possible production ledger backend. There is no PostgreSQL, MySQL, or SQL Server ledger implementation in this repository.
-- Local Engine packaging and EA bridge.
+- Local Engine entrypoint, packaging/`.exe`, and EA bridge.
 
 ## API Documentation
 
