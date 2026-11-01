@@ -1,11 +1,13 @@
-"""Read-only recovery preparation; ingestion and completion are not performed."""
+"""One-shot recovery ingestion; reconciliation and checkpoint advancement are absent."""
 
 from dataclasses import dataclass
 
 from .account_lookup import verify_account_identity
+from .ingestion import DealIngestor, IngestionStatus
 from .models import AccountRef, LedgerCheckpoint, RecoveryRange
 from .recovery import plan_recovery_range
 from .recovery_config import Clock, RecoveryConfig
+from .recovery_models import RecoveryOutcome, RecoveryResult
 from .repository import AccountIdentityError, AccountLookupRepository, CheckpointRepository
 
 
@@ -23,14 +25,15 @@ class RecoveryAttempt:
 
 
 class RecoveryManager:
-    """Prepare account-scoped recovery using injected storage, policy, and clock.
+    """Prepare and ingest one account-scoped recovery range without advancing it.
 
-    Preparation is async for later async ingestion composition. Its current
-    collaborators run synchronously; no tasks or background work are created.
+    An ingestor is required for recover(), but remains optional for prepare-only
+    callers. Successful ingestion still requires future reconciliation. No tasks
+    or background work are created.
     """
 
     def __init__(self, *, account_lookup: AccountLookupRepository, checkpoints: CheckpointRepository,
-                 config: RecoveryConfig, clock: Clock):
+                 config: RecoveryConfig, clock: Clock, ingestor: DealIngestor | None = None):
         if not isinstance(config, RecoveryConfig):
             raise TypeError("config must be a RecoveryConfig")
         if not callable(clock):
@@ -39,6 +42,7 @@ class RecoveryManager:
         self.checkpoints = checkpoints
         self.config = config
         self.clock = clock
+        self.ingestor = ingestor
 
     async def prepare(self, *, account: AccountRef) -> RecoveryAttempt:
         """Verify identity, read checkpoint, capture one horizon, and plan.
@@ -59,3 +63,27 @@ class RecoveryManager:
         planned_range = plan_recovery_range(checkpoint=checkpoint, current_time=current_time,
                                             overlap=self.config.overlap, bootstrap_start=self.config.bootstrap_start)
         return RecoveryAttempt(account=account, checkpoint_before=checkpoint, planned_range=planned_range)
+
+    async def recover(self, *, account: AccountRef) -> RecoveryResult:
+        """Prepare once, ingest the exact range, and preserve its report/snapshot.
+
+        Incomplete ingestion returns FAILED; successful ingestion is only pending
+        reconciliation. Escaping exceptions and cancellation propagate unchanged.
+        Earlier deal commits remain persisted, and checkpoints are never written.
+        """
+        ingestor = self.ingestor
+        if ingestor is None:
+            raise ValueError("ingestor is required for recover")
+        attempt = await self.prepare(account=account)
+        report = await ingestor.ingest_range(account_ref=attempt.account,
+                                             from_time=attempt.planned_range.from_time,
+                                             to_time=attempt.planned_range.to_time)
+        outcome = {
+            IngestionStatus.SUCCESS: RecoveryOutcome.PENDING_RECONCILIATION,
+            IngestionStatus.SUCCESS_EMPTY: RecoveryOutcome.PENDING_RECONCILIATION,
+            IngestionStatus.FAILED: RecoveryOutcome.FAILED,
+            IngestionStatus.PARTIAL: RecoveryOutcome.FAILED,
+        }[report.status]
+        return RecoveryResult(account=attempt.account, checkpoint_before=attempt.checkpoint_before,
+                              planned_range=attempt.planned_range, ingestion_report=report, outcome=outcome,
+                              checkpoint_after=attempt.checkpoint_before)
