@@ -14,6 +14,7 @@ from .recovery_models import RecoveryOutcome, RecoveryResult
 from .recovery_config import Clock, RecoveryConfig, utc_now
 from .recovery_manager import RecoveryAttempt, RecoveryManager
 from .reconciliation_models import ReconciliationStatus, ReconciliationReason, ReconciliationResult
+from .reconciliation_evidence import SourceHistoryAssurance, SourceRecordFingerprint, SourceBatchEvidence
 
 __all__ = ["AccountRef", "LedgerCheckpoint", "NormalizedDeal", "RecoveryRange", "DealNormalizationError", "NORMALIZER_VERSION", "normalize_deal",
            "AccountIdentityError", "DealObservation", "DealRepository", "IngestOutcome", "IngestResult",
@@ -23,4 +24,5 @@ __all__ = ["AccountRef", "LedgerCheckpoint", "NormalizedDeal", "RecoveryRange", 
            "IngestionReport", "IngestionStage", "IngestionStatus", "plan_recovery_range",
            "RecoveryOutcome", "RecoveryResult", "AccountLookupRepository", "verify_account_identity",
            "RecoveryConfig", "Clock", "utc_now", "RecoveryAttempt", "RecoveryManager",
-           "ReconciliationStatus", "ReconciliationReason", "ReconciliationResult"]
+           "ReconciliationStatus", "ReconciliationReason", "ReconciliationResult",
+           "SourceHistoryAssurance", "SourceRecordFingerprint", "SourceBatchEvidence"]
