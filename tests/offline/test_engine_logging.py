@@ -95,7 +95,10 @@ class EngineLoggingTests(unittest.TestCase):
             self.assertEqual(run_engine(), 0)
             self.assertEqual(run_engine(config), 0)
         self.assertEqual(events, ['load', 'logging', 'logging'])
-        self.assertEqual(stream.getvalue(), 'INFO aiomql_engine.entrypoint engine bootstrap initialized mode=offline\n' * 2)
+        expected = ('INFO aiomql_engine.entrypoint engine bootstrap initialized mode=offline\n'
+                    'INFO aiomql_engine.entrypoint startup capabilities offline=True dry_run=True read_only=True '
+                    'mt5_connection=False read_only_mt5=False recovery=False orders=False live=False\n')
+        self.assertEqual(stream.getvalue(), expected * 2)
         self.assertNotIn('fake-secret', stream.getvalue())
         self.assertNotIn('connected', stream.getvalue())
 

@@ -1,5 +1,8 @@
 # Engine bootstrap
 
+The A5–A7 sections below record their original stages. A8 adds the explicit
+startup gate described below, without activating a runtime or connection.
+
 The SDK-independent composition root is `aiomql_engine.main() -> int`, also
 available through `python -m aiomql_engine` when `src` is on the Python import
 path. No executable build, console-script registration or packaging choice is
@@ -84,3 +87,26 @@ tests pass with Python 3.13 (24 added to the user-reported Windows baseline of
 sandbox, with a 45-second bound; no test was skipped. This is Cloud implementation
 validation, and Windows acceptance remains required. No runtime work or packaging
 is implied by a successful bootstrap exit.
+
+## A8 startup safety
+
+`evaluate_startup_safety(EngineConfig) -> StartupSafetyDecision` is pure: no
+environment reads, normalization, filesystem, SDK, recovery, checkpoint or task
+access. The frozen/slotted decision has explicit bool capabilities for offline
+runtime, future MT5 connection/read-only access, recovery, order submission and
+live trading, plus dry-run/read-only flags. It is not a live authorization token.
+
+Default startup permits offline dry-run/read-only bootstrap and denies connection,
+recovery and all broker writes. Offline plus MT5 enabled raises StartupSafetyError.
+Recovery requests are rejected because recovery startup wiring does not exist.
+Trading/order flags or disabled dry-run/read-only are rejected, even for malformed
+config instances that bypassed A6 validation. Values/credentials are never echoed.
+Config is neither mutated nor silently repaired.
+
+A READ_ONLY mode config with MT5 enabled can represent future connection and
+read-only access permissions while still forbidding broker writes. Evaluating or
+logging these permissions does not connect; A10 is explicitly out of scope here.
+Startup loads config, configures logging, evaluates safety exactly once, logs only
+safe mode/capability fields and returns. A rejected gate propagates without a
+success message. Import remains inert. There is no startup recovery or checkpoint
+advancement. These capabilities do not modify the independent trading library.
