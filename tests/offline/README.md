@@ -73,14 +73,14 @@ python -B -m unittest discover -s tests/offline -p 'test_deal_ingestion.py' -v
 python -B -m unittest discover -s tests/offline -p 'test_ledger_recovery_manager_ingestion.py' -v
 ```
 
-The mapping covers cloud validation. Full Windows acceptance remains required;
-the earlier full Linux offline run hung, and a worker-thread recovery test timed
-out both with A4.4 and with the original ingestion implementation at `ea5818d`.
+The mapping records A4.4 coverage. A4.4–A4.7 subsequently passed the user-reported
+Windows baseline of 601/601 tests. A4.8–A4.10 add new requirements; see the final
+Cloud verification and Windows acceptance instructions below.
 
 ## RecoveryManager acceptance scope (A3)
 
-This section records the original A3 scope. A4.7 adds observational reconciliation
-without advancement; see [the current contracts](../../docs/reconciliation.md).
+This section records the original A3 scope. A4.8–A4.9 supersede its no-advancement
+boundary with guarded conditional completion; see [current contracts](../../docs/reconciliation.md).
 
 The offline suite covers durable per-account checkpoints, pure range planning,
 immutable recovery configuration/results, read-only account preflight, and
@@ -97,33 +97,41 @@ the EA bridge are also outside the implemented scope.
 
 ## RecoveryManager concurrency boundary (A3.9)
 
-A4.7 now evaluates a consistent read snapshot after successful ingestion. This
-remains observational: no snapshot ownership, reconcile-and-advance guarantee,
-checkpoint advancement, or live MT5 safety is established.
+A3.9 originally covered overlapping ingestion without advancement. A4.8 now
+serializes complete same-account recoveries through the process-default
+AccountRecoveryCoordinator, including across manager instances and event loops.
+The next owner prepares only after the previous owner releases. Registry entries
+are removed when idle; cancellation cannot release another task's ownership.
+Different account UUIDs progress independently. Dependencies must remain bound to
+the intended account/ledger. There is no distributed lease or crash-resilient owner.
 
-Same-account concurrency is **CONDITIONALLY SAFE** for the current ingestion-only,
-no-checkpoint-advancement stage. Attempts keep their checkpoint/range/report/horizon
-in local variables. Overlapping replay relies on account-scoped ledger uniqueness
-and idempotent observations; there is no whole-flow serialization guarantee.
-Dependencies must stay bound to the intended ledger/account while calls run.
+Independent coordination domains/processes rely on SQLite's atomic expected
+checkpoint comparison and relevant ledger-evidence revalidation before commit.
+Tests use deterministic events/barriers and real temporary SQLite files, including
+cross-loop handoff and concurrent CAS writers. There is no source/write retry or
+background recovery task. This does not establish live MT5 session safety: guards
+cannot detect A -> B -> A, prove complete history, or exclude future corrections.
 
-The concurrency suite uses entry/release events to hold two recoveries in flight,
-including shared manager/ingestor calls with distinct horizons, failure/cancellation
-isolation, and deduplicated conflict observations. A separate thread-barrier case
-runs two real managers/repository instances against one temporary SQLite file;
-event-loop tests alone would serialize the synchronous persistence phase.
-Production manager code creates no tasks, workers, retries, or locks.
+## A4.8–A4.10 verification
 
-Different accounts require account-scoped sources/ingestors and isolated sessions.
-A shared ingestor is tested only with a fixed-account fake source that supports
-independent concurrent fetches. This does not establish live MT5 terminal safety:
-before/after login/server guards cannot detect an A -> B -> A session switch
-during a fetch, and broker namespace still depends on correct application binding.
+The new focused suites are `test_checkpoint_conditional.py`,
+`test_conditional_recovery.py`, `test_recovery_hardening.py`, and
+`test_checkpoint_crash.py`. They add 35 tests covering expected-boundary CAS,
+ownership, failure/cancellation, stale snapshots, commit uncertainty and restart.
 
-Before future reconciliation and checkpoint advancement are introduced, same-account
-attempts need an explicit serialization/coordination design. Overlapping attempts
-can otherwise reconcile different horizons against stale checkpoint snapshots;
-checkpoint monotonicity alone does not validate that evidence. Possible future
-mechanisms include caller serialization, per-account single-flight/leases, attempt
-versions, or reconciliation approval tied to the exact range. None is implemented
-by A3.9, and no Reconciliation or checkpoint advancement is added here.
+Cloud Python 3.13 full offline verification: **636 tests PASS**, with no skips.
+This required running outside the filesystem/network sandbox so asyncio's local
+cross-thread wakeup sockets work. The sandbox hang also reproduces in a stdlib-only
+thread/asyncio program; no TLS or dependency verification was disabled, and no
+external service or SDK was required to resolve it.
+
+Windows final acceptance remains required for A4.8–A4.10. From the repository root
+in the existing Windows development environment, run only:
+
+```powershell
+python -B -m unittest discover -s tests/offline -p 'test_*.py' -v
+```
+
+Do not run `tests/live` as part of this acceptance. Current guarded source evidence
+remains CALL_COMPLETED_UNVERIFIED and cannot produce completion merely because
+counts/fingerprints match. See [the final A4 audit](../../docs/reconciliation.md#a410-final-contract-audit).

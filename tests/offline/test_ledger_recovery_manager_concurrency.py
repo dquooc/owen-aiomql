@@ -8,7 +8,6 @@ from decimal import Decimal
 from pathlib import Path
 import sqlite3
 import tempfile
-from threading import Barrier
 import unittest
 from unittest.mock import patch
 from uuid import UUID
@@ -58,18 +57,6 @@ class HorizonClock:
         horizon = next(self.horizons)
         self.calls.append(horizon)
         return horizon
-
-
-class ThreadBarrierSource(FakeSource):
-    """Used only in test worker threads, each running its own asyncio loop."""
-
-    def __init__(self, account, records, barrier):
-        super().__init__(account, records)
-        self.barrier = barrier
-
-    async def fetch(self, account_ref, from_time, to_time):
-        self.barrier.wait(timeout=5)
-        return await super().fetch(account_ref, from_time, to_time)
 
 
 class RecoveryManagerConcurrencyTests(unittest.IsolatedAsyncioTestCase):

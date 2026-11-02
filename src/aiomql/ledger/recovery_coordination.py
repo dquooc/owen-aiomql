@@ -13,7 +13,7 @@ from uuid import UUID
 class _Waiter:
     loop: asyncio.AbstractEventLoop
     ready: asyncio.Future[None]
-    task: asyncio.Task | None
+    task: asyncio.Task[object] | None
 
 
 @dataclass(slots=True)

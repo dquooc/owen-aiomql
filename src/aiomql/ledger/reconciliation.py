@@ -1,22 +1,23 @@
 """Pure conservative reconciliation of bound source and ledger evidence."""
 
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from .ingestion import IngestionReport, IngestionStatus
-from .ledger_snapshot import LedgerSnapshotEvidence, execution_in_range
+from .ledger_snapshot import LedgerRecordFingerprint, LedgerSnapshotEvidence, execution_in_range
 from .models import AccountRef
-from .reconciliation_evidence import SourceBatchEvidence, SourceHistoryAssurance
+from .reconciliation_evidence import SourceBatchEvidence, SourceHistoryAssurance, SourceRecordFingerprint
 from .reconciliation_models import ReconciliationReason, ReconciliationResult, ReconciliationStatus
 
 if TYPE_CHECKING:
     from .recovery_manager import RecoveryAttempt
 
 
-def _identity(account: AccountRef) -> tuple:
+def _identity(account: AccountRef) -> tuple[UUID, str, str, int]:
     return account.mt5_account_id, account.broker_namespace, account.server, account.login
 
 
-def _fingerprint(record) -> tuple:
+def _fingerprint(record: SourceRecordFingerprint | LedgerRecordFingerprint) -> tuple[int, str, int, int]:
     return record.deal_ticket, record.payload_hash, record.executed_at_msc, record.normalizer_version
 
 

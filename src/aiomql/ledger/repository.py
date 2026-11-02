@@ -59,7 +59,7 @@ class CheckpointCommitError(RuntimeError):
     Callers must not blindly retry the old expectation.
     """
 
-    def __init__(self, checkpoint_after: LedgerCheckpoint | None, *, observation_error: Exception | None = None):
+    def __init__(self, checkpoint_after: LedgerCheckpoint | None, *, observation_error: Exception | None = None) -> None:
         super().__init__("conditional checkpoint commit failed; inspect durable observation before recovery")
         self.checkpoint_after = checkpoint_after
         self.observation_error = observation_error

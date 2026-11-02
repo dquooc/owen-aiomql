@@ -53,7 +53,7 @@ class SourceRecordFingerprint:
 class SourceBatchEvidence:
     """Describe the actual source batch belonging to one ingestion invocation.
 
-    A future collector must supply facts from that call, including its guards;
+    The collector must supply facts from that call, including its guards;
     construction does not prove provenance or approve reconciliation. AccountRef
     carries the stable UUID/broker/server/login identity; observed metadata is not
     an identity key. The existing RecoveryRange owns exact UTC endpoints and

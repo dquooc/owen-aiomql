@@ -225,3 +225,62 @@ Cloud's filesystem/network sandbox can prevent asyncio's cross-thread wakeup
 socket, even in a stdlib-only program. These offline concurrency tests pass when
 run outside that sandbox with local sockets enabled. This does not require MT5,
 external services, credentials or a change to production code.
+
+## A4.10 final contract audit
+
+The accepted starting commit is `4a2b058`, with user-reported Windows acceptance
+of 601/601 offline tests for A4.4–A4.7. New Cloud verification passes 636/636 tests
+(35 added tests), including the previously sandbox-blocked thread tests. This is
+Linux implementation evidence, not Windows final acceptance.
+
+| Boundary | Current contract and verification |
+| --- | --- |
+| Planner | Pure, explicit horizon, exact UTC/microseconds; existing planner suites |
+| Ingestion | One guarded fetch; report/evidence share invocation/account/range; A4.4 suite |
+| Source evidence | Passive immutable models; actual normalized batch fingerprints |
+| Snapshot | Read-only consistent account/range transaction; moved-time conflicts observable |
+| Evaluator | Pure; binding/accounting/conflicts/fingerprints/assurance checked |
+| Ownership | Whole lifecycle by account UUID; shared process default, cancellation/handoff cleanup |
+| Advancement | APPROVED only; expected checkpoint and unchanged relevant evidence checked in one writer transaction |
+| Target | Exactly attempt.planned_range.to_time; never a deal/observation/current-clock boundary |
+| Result | COMPLETED only after committed guarded advancement and validated storage return |
+| Failures | No blind retry, fabricated success, compensation or swallowed cancellation |
+| Restart | Read durable checkpoint; replay after precommit failure, new planning after committed progress |
+
+Final outcome mapping:
+
+| State | Outcome | Advancement |
+| --- | --- | --- |
+| FAILED/PARTIAL ingestion | FAILED | None |
+| REJECTED reconciliation | FAILED | None |
+| INDETERMINATE reconciliation | PENDING_RECONCILIATION | None |
+| APPROVED + successful guarded commit | COMPLETED | Exact planned range end |
+| Stale checkpoint/snapshot or storage/evaluator error | Exception | No success claimed |
+
+The production adapter/ingestor still supplies CALL_COMPLETED_UNVERIFIED, which
+does not prove every broker historical deal was returned, an immutable source
+snapshot, absence of A -> B -> A terminal switches, or absence of future broker
+corrections. Matching real history can therefore remain PENDING_RECONCILIATION.
+No test-supplied VERIFIED_COMPLETE assurance was added to production collection.
+
+Public ledger exports are explicit, unique and contain no SQLite transaction
+helpers/test fixtures. New public evidence uses frozen/slotted typed tuples, with
+no new Any-based DTO. Source/ledger fingerprint types intentionally distinguish
+provenance while sharing scalar validation semantics. Deferred model references
+avoid import cycles and can be resolved with the public ledger type namespace;
+the package imports with an inert parent without loading MetaTrader5. Audit only
+added missing scalar/helper annotations and removed an obsolete test-only barrier.
+
+Static inspection confirms one injected horizon call and one source fetch per
+attempt; the new wall-clock read is checkpoint updated_at audit metadata only.
+The evaluator/planner do not read clocks. Existing ingestion catches Exception
+to report stage errors, while CancelledError escapes; new BaseException handlers
+only release ownership/roll back and re-raise. The coordinator's queue loop is
+handoff, not an operation retry. There are no new direct MT5/trading calls,
+background tasks, automatic registration or hidden source/checkpoint retries.
+
+Remaining boundaries: no distributed ownership lease, no protection against future
+broker corrections after completion, and no claim of live MT5 multi-session safety.
+The SQLite implementation scans account history to validate moved-time variants;
+large-history performance is not benchmarked. Full Windows offline acceptance is
+required before declaring final A4 acceptance. No later roadmap work is included.

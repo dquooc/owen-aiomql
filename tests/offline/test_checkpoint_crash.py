@@ -1,8 +1,6 @@
 """Uncommitted/uncertain commit boundaries and cross-loop ownership."""
 
 import asyncio
-from contextlib import closing
-from datetime import timedelta
 import sqlite3
 from threading import Event, Thread
 from unittest.mock import patch
