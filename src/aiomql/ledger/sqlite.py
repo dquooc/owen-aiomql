@@ -14,7 +14,7 @@ from .models import AccountRef, LedgerCheckpoint, NormalizedDeal, RecoveryRange
 from .ledger_snapshot import LedgerRecordFingerprint, LedgerConflictEvidence, LedgerSnapshotEvidence, execution_in_range
 from .normalize import NORMALIZER_VERSION, normalize_deal
 from .repository import AccountIdentityError, CheckpointRegressionError, DealObservation, IngestOutcome, IngestResult
-from .repository import CheckpointExpectationError, LedgerSnapshotChangedError
+from .repository import CheckpointExpectationError, LedgerSnapshotChangedError, CheckpointCommitError
 
 
 _OBSERVATION_NAMESPACE = UUID("a3aa2b42-8d9d-41a5-8763-a593f60851d5")
@@ -274,7 +274,7 @@ class SQLiteDealRepository:
         if expected is not None and expected.mt5_account_id != account.mt5_account_id:
             raise CheckpointExpectationError("expected checkpoint belongs to another account")
         account_id = str(account.mt5_account_id)
-        with self._write() as conn:
+        with self._conditional_write(account) as conn:
             registered = conn.execute("SELECT * FROM ledger_accounts WHERE mt5_account_id = ?", (account_id,)).fetchone()
             if registered is None or self._identity(self._account_from_row(registered)) != self._identity(account):
                 raise AccountIdentityError("conditional advancement account is unknown or mismatched")
@@ -306,6 +306,38 @@ class SQLiteDealRepository:
                              (boundary.isoformat(timespec="microseconds"),
                               checkpoint.updated_at.isoformat(timespec="microseconds"), account_id))
         return checkpoint
+
+    @contextmanager
+    def _conditional_write(self, account: AccountRef) -> Iterator[sqlite3.Connection]:
+        """Do not turn a lost commit response into success or blindly retry it.
+
+        On a SQLite commit error, close the connection (rolling back any still
+        active transaction), then observe durable state through a fresh connection.
+        Preserve inability to read separately from confirmed absence. Cancellation
+        remains CancelledError; ordinary body errors retain their existing types.
+        """
+        conn = self._connect()
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                yield conn
+            except BaseException:
+                conn.rollback()
+                raise
+            try:
+                conn.commit()
+            except sqlite3.Error as exc:
+                conn.close()
+                try:
+                    observed = self.get_checkpoint(account.mt5_account_id)
+                except (sqlite3.Error, ValueError, TypeError, RuntimeError, OSError) as read_error:
+                    raise CheckpointCommitError(None, observation_error=read_error) from exc
+                raise CheckpointCommitError(observed) from exc
+            except BaseException:
+                conn.rollback()
+                raise
+        finally:
+            conn.close()
 
     @staticmethod
     def _deal_values(deal: NormalizedDeal) -> tuple:

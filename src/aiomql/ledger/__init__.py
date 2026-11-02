@@ -19,6 +19,7 @@ from .ledger_snapshot import LedgerRecordFingerprint, LedgerConflictEvidence, Le
 from .repository import LedgerSnapshotReader
 from .reconciliation import evaluate_reconciliation
 from .repository import ConditionalCheckpointRepository, CheckpointExpectationError, LedgerSnapshotChangedError
+from .repository import CheckpointCommitError
 from .recovery_coordination import AccountRecoveryCoordinator
 
 __all__ = ["AccountRef", "LedgerCheckpoint", "NormalizedDeal", "RecoveryRange", "DealNormalizationError", "NORMALIZER_VERSION", "normalize_deal",
@@ -33,4 +34,4 @@ __all__ = ["AccountRef", "LedgerCheckpoint", "NormalizedDeal", "RecoveryRange", 
            "SourceHistoryAssurance", "SourceRecordFingerprint", "SourceBatchEvidence",
            "LedgerRecordFingerprint", "LedgerConflictEvidence", "LedgerSnapshotEvidence", "LedgerSnapshotReader",
            "evaluate_reconciliation", "ConditionalCheckpointRepository", "CheckpointExpectationError",
-           "LedgerSnapshotChangedError", "AccountRecoveryCoordinator"]
+           "LedgerSnapshotChangedError", "AccountRecoveryCoordinator", "CheckpointCommitError"]

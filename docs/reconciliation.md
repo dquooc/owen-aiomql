@@ -177,3 +177,51 @@ live owner/event loop without cancellation is outside the cooperative contract.
 Current production source assurance remains CALL_COMPLETED_UNVERIFIED and thus
 pending. Verified evidence used by advancement tests is an offline stronger-source
 double, not a new MT5 guarantee. Windows final acceptance is required.
+
+## A4.9 failure, cancellation and crash boundaries
+
+The manager validates the advancement return's type, account and exact planned
+end before producing COMPLETED. A broken adapter returning None, another account,
+or another boundary cannot create a completed result. SQLite's guarded transaction
+checks the expected checkpoint and the relevant snapshot under the same writer
+reservation; another writer cannot enter after revalidation and before commit.
+
+Stale-checkpoint and stale-ledger errors propagate without retry or fabricated
+reconciliation reasons. A new relevant row/conflict/time correction after approval
+invalidates advancement. Valid changes for another account or outside the range
+do not invalidate this range's evidence. Historical conflicts remain unresolved;
+source A -> B -> A switches and future broker corrections are still not proven
+absent by two session guards.
+
+Transaction-body failure/cancellation rolls back uncommitted advancement. Earlier
+deal commits remain and a fresh recovery replays them. After advancement commits,
+failure/cancellation during result construction does not undo durable progress:
+restart reads the NEW boundary and plans normally from it, without reconstructing
+the lost result or using an already-completed shortcut.
+
+An SQLite commit exception is not treated as success. The conditional adapter
+closes the write connection to release/roll back any still-active transaction,
+then reads the checkpoint through a fresh connection exactly once. It raises
+`CheckpointCommitError`, preserving the original SQLite error as its cause:
+
+- `observation_error is None`: checkpoint_after is the observed durable checkpoint,
+  or None for confirmed absence;
+- otherwise the durable observation is unavailable, and None must NOT be read as
+  confirmed absence.
+
+The observation does not establish which writer committed. The adapter never
+retries a write or fabricates COMPLETED from a lost commit response. Cancellation
+is still propagated as CancelledError. Snapshot/evaluator/storage exceptions also
+release ownership; cancellation during ownership handoff cannot strand the next
+waiter. Tests use deterministic events, not polling sleeps.
+
+`test_recovery_hardening.py` covers the stage failure/cancellation matrix, ownership
+handoff races, independent-manager CAS, snapshot mutation races, safe irrelevant
+mutations, restart/replay and lost results. `test_checkpoint_crash.py` covers
+uncommitted rollback, lost commit responses before/after actual commit, failed
+durable rereads, writer exclusion and ownership across thread event loops.
+
+Cloud's filesystem/network sandbox can prevent asyncio's cross-thread wakeup
+socket, even in a stdlib-only program. These offline concurrency tests pass when
+run outside that sandbox with local sockets enabled. This does not require MT5,
+external services, credentials or a change to production code.

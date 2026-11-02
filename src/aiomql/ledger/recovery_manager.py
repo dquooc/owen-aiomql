@@ -133,6 +133,11 @@ class RecoveryManager:
                 checkpoint_after = advancement.advance_checkpoint_if_expected(
                     attempt.account, attempt.planned_range.to_time,
                     expected=attempt.checkpoint_before, expected_snapshot=snapshot)
+                if not isinstance(checkpoint_after, LedgerCheckpoint):
+                    raise TypeError("conditional advancement must return a durable LedgerCheckpoint")
+                if (checkpoint_after.mt5_account_id != attempt.account.mt5_account_id
+                        or checkpoint_after.completed_through != attempt.planned_range.to_time):
+                    raise ValueError("conditional advancement returned the wrong account or boundary")
                 outcome = RecoveryOutcome.COMPLETED
         return RecoveryResult(account=attempt.account, checkpoint_before=attempt.checkpoint_before,
                               planned_range=attempt.planned_range, ingestion_report=report, outcome=outcome,

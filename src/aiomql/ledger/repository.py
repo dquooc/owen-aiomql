@@ -51,6 +51,20 @@ class LedgerSnapshotChangedError(ValueError):
     """Relevant ledger evidence changed before the advancement transaction."""
 
 
+class CheckpointCommitError(RuntimeError):
+    """Commit failed: never success, with a fresh durable observation if available.
+
+    checkpoint_after=None means absent ONLY when observation_error is None.
+    A returned boundary is an observation, not proof of which writer committed.
+    Callers must not blindly retry the old expectation.
+    """
+
+    def __init__(self, checkpoint_after: LedgerCheckpoint | None, *, observation_error: Exception | None = None):
+        super().__init__("conditional checkpoint commit failed; inspect durable observation before recovery")
+        self.checkpoint_after = checkpoint_after
+        self.observation_error = observation_error
+
+
 class CheckpointRepository(Protocol):
     """Independent storage boundary for account-scoped durable checkpoints.
 
