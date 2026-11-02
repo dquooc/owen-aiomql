@@ -34,3 +34,50 @@ fingerprints/order/partial fills/replay, exact UTC/microsecond bounds, empty/equ
 endpoints, precision extremes, historical conflicts and moved execution times,
 no database mutation, WAL concurrent-writer consistency, decode/storage errors,
 restart/separate instances, and immutable runtime-validated evidence.
+
+## A4.6 pure evaluator
+
+`evaluate_reconciliation(attempt=..., ingestion_report=..., source_evidence=...,
+ledger_evidence=...)` returns the existing `ReconciliationResult`, retaining the
+exact attempt and report objects. It performs no repository/source I/O, clock
+read, normalization, hashing, retry, or mutation.
+
+Identity compares UUID, broker namespace, server and login, ignoring observed
+company/trade-mode metadata. Invocation ID and every exact range boundary must
+agree (canonical timezone-equivalent instants agree; differing microseconds do
+not). The evaluator checks nonnegative integer counters, excluding bools, and
+`retrieved = normalized + invalid`,
+`normalized = inserted + duplicates + conflicts`. Empty success requires all
+zero counters; nonempty success requires a positive retrieved count.
+
+Deterministic precedence is:
+
+1. Binding mismatch -> REJECTED/BINDING_MISMATCH.
+2. FAILED/PARTIAL status -> REJECTED/INGESTION_INCOMPLETE.
+3. Malformed/negative counters -> REJECTED/ACCOUNTING_MISMATCH.
+4. Positive invalid count or errors -> REJECTED/INGESTION_INCOMPLETE.
+5. Arithmetic/status/source-count inconsistency -> REJECTED/ACCOUNTING_MISMATCH.
+6. Current or persisted conflict, or differing source variants of one ticket ->
+   REJECTED/CONFLICT_PRESENT.
+7. Impossible repeated-ticket insertion accounting -> REJECTED/ACCOUNTING_MISMATCH.
+8. Missing fingerprints, unverified completeness, or timestamps outside the
+   ledger projection -> INDETERMINATE/EVIDENCE_INSUFFICIENT.
+9. Missing/extra/different canonical ledger fingerprints -> REJECTED/LEDGER_MISMATCH.
+10. Otherwise APPROVED, with no reason and no advancement.
+
+Identical repeated source entries represent one canonical account/ticket row and
+require sufficient duplicate accounting; differing variants cannot be collapsed
+into approval. Comparison ignores collection order, comparing all four fingerprint
+fields. Extra canonical ledger rows are not ignored. Source timestamps outside
+the ledger view are insufficient evidence, rather than invented endpoint rules.
+
+Conservative completeness is mandatory: current CALL_COMPLETED_UNVERIFIED source
+evidence remains INDETERMINATE even for matching nonempty or empty snapshots.
+VERIFIED_COMPLETE is supported for a future independently stronger contract;
+tests supplying it do not establish that the current source provides it.
+
+`tests/offline/test_reconciliation_evaluator.py` covers bindings, counter domains
+and arithmetic, processing failures, current/historical conflicts, each fingerprint
+field, missing/extra rows, insert/duplicate mixes, repeated tickets, empty and
+nonempty assurance, timestamp precision, precedence, deterministic unchanged inputs,
+and guards against I/O/normalization/clock/source calls.

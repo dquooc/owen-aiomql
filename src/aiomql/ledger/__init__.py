@@ -17,6 +17,7 @@ from .reconciliation_models import ReconciliationStatus, ReconciliationReason, R
 from .reconciliation_evidence import SourceHistoryAssurance, SourceRecordFingerprint, SourceBatchEvidence
 from .ledger_snapshot import LedgerRecordFingerprint, LedgerConflictEvidence, LedgerSnapshotEvidence
 from .repository import LedgerSnapshotReader
+from .reconciliation import evaluate_reconciliation
 
 __all__ = ["AccountRef", "LedgerCheckpoint", "NormalizedDeal", "RecoveryRange", "DealNormalizationError", "NORMALIZER_VERSION", "normalize_deal",
            "AccountIdentityError", "DealObservation", "DealRepository", "IngestOutcome", "IngestResult",
@@ -28,4 +29,5 @@ __all__ = ["AccountRef", "LedgerCheckpoint", "NormalizedDeal", "RecoveryRange", 
            "RecoveryConfig", "Clock", "utc_now", "RecoveryAttempt", "RecoveryManager",
            "ReconciliationStatus", "ReconciliationReason", "ReconciliationResult",
            "SourceHistoryAssurance", "SourceRecordFingerprint", "SourceBatchEvidence",
-           "LedgerRecordFingerprint", "LedgerConflictEvidence", "LedgerSnapshotEvidence", "LedgerSnapshotReader"]
+           "LedgerRecordFingerprint", "LedgerConflictEvidence", "LedgerSnapshotEvidence", "LedgerSnapshotReader",
+           "evaluate_reconciliation"]
