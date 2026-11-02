@@ -8,7 +8,7 @@ from .repository import CheckpointRegressionError, CheckpointRepository
 from .account_lookup import verify_account_identity
 from .sqlite import SQLiteDealRepository
 from .source import DealHistoryBatch, DealHistorySource, HistoryFetchError, MetaTraderDealHistorySource, SessionAccount
-from .ingestion import DealIngestor, IngestionError, IngestionReport, IngestionStage, IngestionStatus
+from .ingestion import DealIngestor, IngestionError, IngestionReport, IngestionStage, IngestionStatus, IngestionExecution
 from .recovery import plan_recovery_range
 from .recovery_models import RecoveryOutcome, RecoveryResult
 from .recovery_config import Clock, RecoveryConfig, utc_now
@@ -21,7 +21,7 @@ __all__ = ["AccountRef", "LedgerCheckpoint", "NormalizedDeal", "RecoveryRange", 
            "CheckpointRegressionError", "CheckpointRepository",
            "SQLiteDealRepository", "DealHistoryBatch", "DealHistorySource", "HistoryFetchError",
            "MetaTraderDealHistorySource", "SessionAccount", "DealIngestor", "IngestionError",
-           "IngestionReport", "IngestionStage", "IngestionStatus", "plan_recovery_range",
+           "IngestionReport", "IngestionStage", "IngestionStatus", "IngestionExecution", "plan_recovery_range",
            "RecoveryOutcome", "RecoveryResult", "AccountLookupRepository", "verify_account_identity",
            "RecoveryConfig", "Clock", "utc_now", "RecoveryAttempt", "RecoveryManager",
            "ReconciliationStatus", "ReconciliationReason", "ReconciliationResult",
