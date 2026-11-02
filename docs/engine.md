@@ -154,3 +154,28 @@ without skips or timeout (16 added to the A7 suite). Full offline concurrency
 verification used local event-loop wakeup sockets outside the sandbox with a
 45-second bound. Legacy `src/aiomql` and live tests are unchanged. This remains
 Cloud implementation validation; Windows acceptance is required before A10.
+
+## A11 explicit offline runtime composition
+
+`compose_runtime(config=None) -> EngineRuntime` is the single composition root:
+load/validate config, configure engine logging, evaluate startup safety, build the
+existing runtime/policy/barrier, emit safe capability fields, return the handle.
+Construction is explicit and isolated per call; no service locator, runtime
+singleton, source, repository, database or RecoveryManager is created.
+
+`run_engine(config=None)` owns `runtime.run()` and a finally-protected
+`runtime.shutdown()`. Status is preserved; exceptions/cancellation propagate;
+main still maps KeyboardInterrupt to 130. If startup logging raises after the
+runtime was constructed, composition shuts it down before propagating the error.
+Explicit callers of compose_runtime own the same run/shutdown pair themselves.
+
+The current runtime has no active services/resources: run completes synchronously
+with 0, and shutdown is a repeatable no-op. Repeated runs are resource-free and
+do not change the write barrier. No event loop, background worker or daemon is
+invented. The console logger belongs to the composition root, not runtime cleanup.
+Existing policy/barrier fields and construction remain backward compatible.
+
+Recovery-disabled startup does not build recovery dependencies. Recovery-enabled
+startup remains unsupported and fails at safety before dependency construction.
+Read-only MT5 permission still does not connect. A10 has NOT passed and this work
+does not supply live read adapters or general/live runtime activation.

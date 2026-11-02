@@ -72,6 +72,18 @@ class EngineRuntime:
         if self.broker_writes.policy != self.policy:
             raise ValueError('runtime policy must match its broker-write barrier')
 
+    def run(self) -> int:
+        """Complete the resource-free offline run; no loop or recovery activation.
+
+        There are currently no services to start. Repeated runs are independent
+        local no-ops; future resource ownership must extend this explicit boundary.
+        """
+        BrokerWritePolicy.__post_init__(self.policy)
+        return 0
+
+    def shutdown(self) -> None:
+        """Idempotent resource-free cleanup; the shared console logger is not owned here."""
+
 
 def build_runtime(decision: StartupSafetyDecision) -> EngineRuntime:
     """Project an approved startup decision into a non-live engine handle.
