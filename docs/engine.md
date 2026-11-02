@@ -1,7 +1,9 @@
 # Engine bootstrap
 
-The A5–A7 sections below record their original stages. A8–A9 add the explicit
-startup gate and non-live runtime boundary, without activating a connection.
+The A5–A12 sections below record their original implementation/Cloud stages.
+A8–A9 add the explicit startup gate and non-live runtime boundary, without
+activating a connection. Later Windows artifact and A10 read-only acceptance
+are recorded in the local release section below.
 
 The SDK-independent composition root is `aiomql_engine.main() -> int`, also
 available through `python -m aiomql_engine` when `src` is on the Python import
@@ -177,8 +179,9 @@ Existing policy/barrier fields and construction remain backward compatible.
 
 Recovery-disabled startup does not build recovery dependencies. Recovery-enabled
 startup remains unsupported and fails at safety before dependency construction.
-Read-only MT5 permission still does not connect. A10 has NOT passed and this work
-does not supply live read adapters or general/live runtime activation.
+Read-only MT5 permission still does not connect. A11 did not validate A10 or
+supply live read adapters or general/live runtime activation. The later explicit
+Windows A10 smoke is recorded separately below.
 
 ## A12 Windows packaging preparation
 
@@ -188,13 +191,41 @@ The prepared launcher and OS-guarded build command are documented in
 console bundle of the current offline bootstrap only. No additional package data,
 credential/config/database files, live SDK or runtime hooks are included.
 
-Binary build NOT performed in A12. Windows build required in A13. Cloud checks
-only structure, syntax, import safety, OS/Python guards and mocked command/status
-contracts. Project dependencies/lockfile are unchanged. A10 remains NOT accepted;
-successful offline composition does not establish MT5 connectivity or acceptance.
+Binary build was not performed in A12; it required the later Windows A13 work.
+Cloud checks covered only structure, syntax, import safety, OS/Python guards and
+mocked command/status contracts. A12 did not change project dependencies/lockfile
+or establish A10 acceptance. Successful offline composition does not establish
+MT5 connectivity or acceptance.
 
 A11–A12 Cloud validation adds 8 runtime-lifecycle and 9 packaging-contract tests.
 All 57 focused engine tests and 693/693 full offline tests pass with Python 3.13,
 without skips/timeouts. Full concurrency verification uses local asyncio wakeup
-sockets outside the sandbox with a 45-second bound. Windows runtime/binary
-acceptance remains outstanding; no A13 build or deployment was performed.
+sockets outside the sandbox with a 45-second bound. At that Cloud stage Windows
+runtime/binary acceptance was outstanding; no A13 build or deployment was
+performed by those checks.
+
+## Windows local release record (2026-11-03)
+
+The existing Windows artifact is
+`dist\AIOMQL_Engine\AIOMQL_Engine.exe` (1767518 bytes; LastWriteTime
+`2026-11-03 01:01:04`, Asia/Saigon). Its SHA256 and full release record are in
+[the Windows packaging/release document](../tools/windows/README.md#local-release-record-2026-11-03).
+**build commit chưa xác minh**: existing records do not bind the binary to a
+source commit. A packaging-preparation, acceptance, or current checkout commit
+must not be substituted for build provenance.
+
+Distribute the entire onedir directory `dist\AIOMQL_Engine\`, including its
+`_internal\` dependencies; distributing only the EXE is incomplete. The artifact
+remains an offline bootstrap with trading/order submission disabled. Its presence
+and checksum do not establish a packaged MT5 connection or automatic recovery.
+
+A10 is **ACCEPTED in the bounded live read-only scope**: **2/2 live PASS**,
+**702/702 pre-live and 702/702 post-live offline PASS**, all exit 0. Actual-batch
+assurance remains `CALL_COMPLETED_UNVERIFIED`; reconciliation remains
+`INDETERMINATE / EVIDENCE_INSUFFICIENT`, recovery remains
+`PENDING_RECONCILIATION`, and the checkpoint is unchanged with zero advancement.
+Broker writes and order/position mutations are **0**. This is the previously
+completed explicit source-level smoke, not new runtime wiring or a binary live
+test. No rebuild, live run, or runtime change accompanies this documentation
+update. See [the handover](../AIOMQL_CODEX_HANDOVER.md#17-a10--mt5-read-only-smoke--accepted)
+for the accepted evidence.

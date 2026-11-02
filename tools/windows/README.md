@@ -1,8 +1,44 @@
-# Windows engine packaging preparation (A12)
+# Windows engine packaging and local release record
 
-Binary build NOT performed in A12.
-Windows build required in A13.
-A10 MT5 Read-only Smoke is NOT accepted. This preparation does not resolve it.
+A12 prepared packaging; the later A13 Windows build produced the local artifact
+recorded below. A10 is now **ACCEPTED for explicit bounded live read-only tests**.
+The packaged engine remains an offline bootstrap; the source-level A10 smoke
+does not add a live SDK/session or automatic recovery to this binary.
+
+## Local release record (2026-11-03)
+
+The supplied release record matches read-only metadata and SHA-256 inspection of
+the existing artifact. No rebuild or executable run was performed for this update.
+
+| Field | Recorded value |
+| --- | --- |
+| Artifact | `dist\AIOMQL_Engine\AIOMQL_Engine.exe` |
+| Size | `1767518 bytes` |
+| LastWriteTime | `2026-11-03 01:01:04` (Asia/Saigon, UTC+07:00) |
+| SHA256 | `AFA67FEF44AECDB1AB983D61CCA3C4E885FC741B046DD3D7E663F38426CFFD9C` |
+| Build commit | **build commit chưa xác minh** |
+| Distribution | Entire onedir bundle: `dist\AIOMQL_Engine\` |
+
+Existing handover/build documentation, Git history/notes, and generated
+PyInstaller spec/TOC/warning/xref records do not bind this binary to a source
+commit. `b70967b` records packaging preparation, not verified binary provenance.
+Neither the current checkout commit nor the A10 acceptance commit is assigned as
+the binary's build commit. The SHA256 above covers the EXE, not the entire bundle.
+
+Distribute the **whole `dist\AIOMQL_Engine\` directory**, including
+`AIOMQL_Engine.exe`, `_internal\`, and all bundled dependencies with their relative
+layout preserved. The EXE alone is not a complete onedir distribution.
+
+Accepted Windows A10 evidence: **2/2 live PASS**, no skips, exit 0; **702/702
+pre-live and 702/702 post-live offline PASS**, both exit 0. Source assurance stays
+`CALL_COMPLETED_UNVERIFIED`; reconciliation is
+`INDETERMINATE / EVIDENCE_INSUFFICIENT`, recovery stays
+`PENDING_RECONCILIATION`, and the checkpoint is unchanged (`None -> None`, zero
+advancement calls). Broker writes and order/position mutations are all **0**.
+Trading and order submission remain **disabled**. These results come from the
+completed source-level tests, not a new live run or a packaged MT5 runtime test.
+See [the handover](../../AIOMQL_CODEX_HANDOVER.md#17-a10--mt5-read-only-smoke--accepted)
+for the acceptance evidence and scope.
 
 ## Strategy and prerequisites
 
@@ -53,9 +89,9 @@ for unintended data/dependencies, then run the executable from an empty temporar
 working directory with safe default engine settings. Verify exit status, safe
 capability logs, no SDK/session, no DB/checkpoint creation and no broker mutation.
 Exercise malformed/contradictory settings and repeated startup. Do not run live
-tests as part of artifact validation. A10 remains a separate Windows prerequisite
-for any future live read-only integration; A13 must not claim it passed merely
-because an offline executable starts.
+tests as part of artifact validation. The separately accepted Windows A10 smoke
+does not establish future packaged live read-only runtime integration; A13 must
+not infer MT5 acceptance merely because an offline executable starts.
 
 Cloud/Linux checks cover launcher imports, script syntax/structure, mocked command
 construction, the OS guard and offline regression only. They do not validate a

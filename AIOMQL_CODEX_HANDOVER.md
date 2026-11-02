@@ -1208,6 +1208,35 @@ This was a real Windows build, not a Cloud claim.
 
 Build output is generated artifact state and is not necessarily committed to Git.
 
+## Recorded artifact / provenance (2026-11-03)
+
+The supplied release record was checked against the existing file using read-only
+metadata/hash inspection; all values match. LastWriteTime is Windows local time
+in Asia/Saigon (UTC+07:00).
+
+| Field | Recorded value |
+| --- | --- |
+| Artifact | `dist\AIOMQL_Engine\AIOMQL_Engine.exe` |
+| Size | `1767518 bytes` |
+| LastWriteTime | `2026-11-03 01:01:04` |
+| SHA256 | `AFA67FEF44AECDB1AB983D61CCA3C4E885FC741B046DD3D7E663F38426CFFD9C` |
+| Build commit | **build commit chưa xác minh** |
+| Distribution | Entire `dist\AIOMQL_Engine\` onedir bundle |
+
+The existing handover/release docs, Git history/notes, and generated PyInstaller
+spec/TOC/warning/xref records contain no verified binary-to-source-commit binding.
+`b70967b` is packaging preparation, not proof of the commit used for this binary.
+Do not assign the current checkout or A10 acceptance commit as its build commit.
+The checksum above identifies only the EXE, not every file in the onedir bundle.
+
+Distribute **all of `dist\AIOMQL_Engine\`**, preserving the EXE, `_internal\`,
+dependencies and relative layout. Do not distribute the EXE alone. See
+[the Windows release record](tools/windows/README.md#local-release-record-2026-11-03).
+The artifact remains the offline bootstrap with trading/order submission
+disabled; source-level A10 acceptance does not establish packaged MT5 runtime
+integration. This record update did not rebuild or execute the artifact, run
+live tests, or change runtime code.
+
 ---
 
 # 21. A14 / A15 — LOCAL OFFLINE RELEASE STATE
@@ -1245,6 +1274,13 @@ acceptance item. Current release scope is:
 AIOMQL LOCAL OFFLINE RELEASE ACCEPTED
 MT5 BOUNDED LIVE READ-ONLY ACCEPTANCE ACCEPTED
 ```
+
+A10 acceptance evidence is **2/2 live PASS**, **702/702 pre-live offline PASS**
+and **702/702 post-live offline PASS**, all exit 0. Source assurance remains
+`CALL_COMPLETED_UNVERIFIED`; recovery is `PENDING_RECONCILIATION`, checkpoint
+unchanged, and broker writes are **0**. Trading/order submission remain disabled.
+The existing binary's release record and unverified build commit are in section
+20; distribute its entire onedir bundle rather than only the EXE.
 
 Do NOT claim:
 
