@@ -1,8 +1,13 @@
 """Callable boundary for the future local engine; no live runtime work yet."""
 
+from .config import EngineConfig, load_config
 
-def run_engine() -> int:
-    """Run the currently empty bootstrap, without sessions, recovery or tasks."""
+
+def run_engine(config: EngineConfig | None = None) -> int:
+    """Load/validate settings only; no sessions, recovery, database or tasks."""
+    config = load_config() if config is None else config
+    if not isinstance(config, EngineConfig):
+        raise TypeError('config must be an EngineConfig')
     return 0
 
 
