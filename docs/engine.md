@@ -179,3 +179,22 @@ Recovery-disabled startup does not build recovery dependencies. Recovery-enabled
 startup remains unsupported and fails at safety before dependency construction.
 Read-only MT5 permission still does not connect. A10 has NOT passed and this work
 does not supply live read adapters or general/live runtime activation.
+
+## A12 Windows packaging preparation
+
+The prepared launcher and OS-guarded build command are documented in
+[tools/windows/README.md](../tools/windows/README.md). The target is
+`AIOMQL_Engine.exe`, using a pinned, separate PyInstaller dependency and an onedir
+console bundle of the current offline bootstrap only. No additional package data,
+credential/config/database files, live SDK or runtime hooks are included.
+
+Binary build NOT performed in A12. Windows build required in A13. Cloud checks
+only structure, syntax, import safety, OS/Python guards and mocked command/status
+contracts. Project dependencies/lockfile are unchanged. A10 remains NOT accepted;
+successful offline composition does not establish MT5 connectivity or acceptance.
+
+A11–A12 Cloud validation adds 8 runtime-lifecycle and 9 packaging-contract tests.
+All 57 focused engine tests and 693/693 full offline tests pass with Python 3.13,
+without skips/timeouts. Full concurrency verification uses local asyncio wakeup
+sockets outside the sandbox with a 45-second bound. Windows runtime/binary
+acceptance remains outstanding; no A13 build or deployment was performed.

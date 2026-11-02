@@ -396,8 +396,10 @@ typed configuration, engine-owned console logging, and explicit exit status. Wit
 the trading SDK, connect, open a database, recover, advance checkpoints or submit
 orders. An explicit pure startup gate rejects contradictory capabilities, and a
 dry-run broker-write barrier denies mutation requests before adapter access.
-See [engine configuration, safety and dry-run](docs/engine.md). MT5 read-only
-connection/runtime wiring remains a future phase; Windows acceptance is required.
+See [engine configuration, safety and dry-run](docs/engine.md). Explicit offline
+runtime composition/lifecycle is available, and [Windows packaging preparation](tools/windows/README.md)
+is ready for later validation. No binary was built in Cloud. A10 read-only MT5
+smoke remains unaccepted; MT5 integration and Windows acceptance are outstanding.
 
 ## Roadmap / Work in Progress
 
