@@ -1,7 +1,7 @@
 # Engine bootstrap
 
-The A5–A7 sections below record their original stages. A8 adds the explicit
-startup gate described below, without activating a runtime or connection.
+The A5–A7 sections below record their original stages. A8–A9 add the explicit
+startup gate and non-live runtime boundary, without activating a connection.
 
 The SDK-independent composition root is `aiomql_engine.main() -> int`, also
 available through `python -m aiomql_engine` when `src` is on the Python import
@@ -110,3 +110,47 @@ Startup loads config, configures logging, evaluates safety exactly once, logs on
 safe mode/capability fields and returns. A rejected gate propagates without a
 success message. Import remains inert. There is no startup recovery or checkpoint
 advancement. These capabilities do not modify the independent trading library.
+
+## A9 dry-run execution boundary
+
+`build_runtime(StartupSafetyDecision) -> EngineRuntime` revalidates the decision
+and produces immutable `BrokerWritePolicy` and `BrokerWriteBarrier` objects.
+The composition root builds this handle exactly once after the gate. It starts
+no runtime loop, read adapter, recovery, database or checkpoint work. Public
+main/run_engine still return exit status, not a trading/session handle.
+
+The engine's single mutation seam is async `BrokerWriteBarrier.submit(request)`.
+Existing library inspection shows market/new orders and position closes use DEAL,
+pending orders use PENDING, changes use MODIFY/SLTP, cancellations use REMOVE, and
+close-by uses CLOSE_BY. Those request shapes all reach the same engine barrier;
+it denies every request, including unknown shapes, before inspecting request data
+or accessing an adapter. Denial raises BrokerWriteDeniedError and returns no fake
+success, ticket or broker result. No native mutation function is invoked.
+
+The process default runtime binds no writer at all. An optional opaque writer
+can be supplied directly to the barrier for composition tests/future integration;
+its repr is hidden and A9 contains no call to it. Even a malformed future policy
+cannot activate a live execution branch: live activation is not implemented.
+Repeated denial does not mutate inputs, runtime objects or adapter state.
+
+Policy permits local computation/planning/logging; it does not execute arbitrary
+callbacks or label them safe. Local database work retains its existing subsystem
+contracts. Read adapter passthrough is intentionally not supplied before A10.
+Recovery/checkpoint execution is never implied by dry-run or runtime construction.
+
+The barrier is an engine application boundary, not a Python security sandbox.
+Future engine wiring must route every broker mutation through this seam and must
+not expose an unguarded legacy trader/SDK. Direct use of the existing trading
+library outside the engine is unchanged, as are its tests and live test behavior.
+
+Focused suites `test_engine_safety.py` and `test_engine_dry_run.py` cover pure
+capabilities, contradictory/malformed requests, future read-only permissions,
+exact startup ordering, zero adapter calls, immutable policy, repeated denial,
+secret-safe diagnostics and no runtime activation. Windows acceptance is required.
+A10 MT5 Read-only Smoke is not implemented or executed in Cloud.
+
+A8–A9 Cloud verification passes 40 focused engine tests and all 676 offline tests,
+without skips or timeout (16 added to the A7 suite). Full offline concurrency
+verification used local event-loop wakeup sockets outside the sandbox with a
+45-second bound. Legacy `src/aiomql` and live tests are unchanged. This remains
+Cloud implementation validation; Windows acceptance is required before A10.
