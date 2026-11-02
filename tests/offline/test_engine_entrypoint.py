@@ -29,10 +29,13 @@ def audit(event, args):
         raise AssertionError('runtime file access')
 sys.addaudithook(audit)
 handlers = tuple(logging.getLogger().handlers)
+engine_logger = logging.getLogger('aiomql_engine')
+engine_logging = tuple(engine_logger.handlers), engine_logger.level, engine_logger.propagate
 threads = tuple(threading.enumerate())
 import aiomql_engine
 import aiomql_engine.__main__
 assert tuple(logging.getLogger().handlers) == handlers
+assert (tuple(engine_logger.handlers), engine_logger.level, engine_logger.propagate) == engine_logging
 with __import__('unittest.mock', fromlist=['patch']).patch.object(asyncio, 'create_task', side_effect=AssertionError('task')):
     assert aiomql_engine.main() == 0
 assert tuple(threading.enumerate()) == threads

@@ -44,3 +44,43 @@ raise without secret values. Static defaults are separate from parsing/validatio
 EngineConfig. MT5/recovery flags are requests for future wiring and perform no
 work in A6: no file/database is created, no session/recovery/checkpoint starts.
 This configuration domain restriction is not A8 startup safety implementation.
+
+## A7 engine logging
+
+The composition root now loads/validates config, calls
+`configure_logging(LogLevel, stream=None)`, emits
+`engine bootstrap initialized mode=<enum value>`, then returns 0. This does not
+claim MT5 connection or readiness for trading. Unexpected configuration/logging
+setup failures propagate; KeyboardInterrupt remains exit 130.
+
+The standard-library console handler belongs only to the `aiomql_engine` logger
+hierarchy, with `LEVEL logger.name message` format and no timestamp/clock read.
+Child/module loggers inherit it. Root and trading-library loggers are untouched;
+propagation from the engine to root is disabled. A short configuration lock makes
+repeated setup reuse one owned handler, update stream/level and avoid duplication.
+User-attached handlers are preserved and remain their owner's responsibility.
+Import does not add handlers or configure any logger.
+
+Startup logs only a fixed message and validated mode; they never log config repr,
+database paths, arbitrary environment input or credential objects. There are no
+credential fields in EngineConfig, no .env reads, no generic redaction framework,
+file handler/rotation, remote logs or runtime recovery/trading wiring.
+
+Run source bootstrap from the repository root without installing the trading SDK:
+
+```sh
+PYTHONPATH=src python -B -m aiomql_engine
+```
+
+PowerShell equivalent: set `$env:PYTHONPATH = 'src'` for the current shell, then
+`python -B -m aiomql_engine`. No database/session/checkpoint work is performed.
+Focused suites are `test_engine_entrypoint.py`, `test_engine_config.py`, and
+`test_engine_logging.py`. Linux Cloud verification does not replace Windows
+acceptance. A8 Startup Safety is not implemented by these bootstrap stages.
+
+Cloud verification for A5–A7: 24 focused engine tests and 660/660 full offline
+tests pass with Python 3.13 (24 added to the user-reported Windows baseline of
+636 tests). The full offline run used local event-loop wakeup sockets outside the
+sandbox, with a 45-second bound; no test was skipped. This is Cloud implementation
+validation, and Windows acceptance remains required. No runtime work or packaging
+is implied by a successful bootstrap exit.

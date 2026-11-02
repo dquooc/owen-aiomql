@@ -388,6 +388,15 @@ flowchart TD
 
 The trading path and history-ingestion path are separate. Application code constructs the source and ingestor and calls `ingest_range()` explicitly; the diagram does not imply that a bot automatically ingests its trades.
 
+## Engine bootstrap
+
+The independent `aiomql_engine` composition root provides a safe offline bootstrap:
+typed configuration, engine-owned console logging, and explicit exit status. With
+`src` on the Python import path, run `python -B -m aiomql_engine`. It does not load
+the trading SDK, connect, open a database, recover, advance checkpoints or submit
+orders. See [engine configuration and logging](docs/engine.md). Startup safety and
+live runtime wiring are future phases; Windows acceptance is required for A5–A7.
+
 ## Roadmap / Work in Progress
 
 The following recovery and engine capabilities are **not implemented**:
@@ -395,7 +404,7 @@ The following recovery and engine capabilities are **not implemented**:
 - Automatic startup recovery, distributed ownership/leases, and live MT5 recovery validation. Conditional advancement after independently verified approval is implemented; ingestion alone never advances a checkpoint.
 - Stronger source-completeness guarantees and live validation of the implemented conservative reconciliation path.
 - Evaluation of PostgreSQL as a possible production ledger backend. There is no PostgreSQL, MySQL, or SQL Server ledger implementation in this repository.
-- Local Engine entrypoint, packaging/`.exe`, and EA bridge.
+- Engine startup safety/runtime wiring, packaging/`.exe`, and EA bridge. The A5–A7 offline bootstrap entrypoint/config/logging boundary is implemented.
 
 ## API Documentation
 
