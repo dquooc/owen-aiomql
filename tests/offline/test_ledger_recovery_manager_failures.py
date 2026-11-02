@@ -100,7 +100,7 @@ class RecoveryFailureBoundaryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_status_and_conflict_matrix_preserves_failure_objects_without_advance(self):
         cases = (
-            (ledger.IngestionStatus.SUCCESS, ledger.RecoveryOutcome.PENDING_RECONCILIATION,
+            (ledger.IngestionStatus.SUCCESS, ledger.RecoveryOutcome.FAILED,
              dict(retrieved=1, normalized=1, conflicts=1)),
             (ledger.IngestionStatus.SUCCESS_EMPTY, ledger.RecoveryOutcome.PENDING_RECONCILIATION, {}),
             (ledger.IngestionStatus.FAILED, ledger.RecoveryOutcome.FAILED,
@@ -166,14 +166,15 @@ class ReportRecorder:
         self.release = None
         self.continued = False
 
-    async def ingest_range(self, account_ref, from_time, to_time):
+    async def ingest_range_with_evidence(self, account_ref, from_time, to_time):
         self.calls.append((account_ref, from_time, to_time))
-        self.report = await self.ingestor.ingest_range(account_ref, from_time, to_time)
+        execution = await self.ingestor.ingest_range_with_evidence(account_ref, from_time, to_time)
+        self.report = execution.report
         if self.persisted is not None:
             self.persisted.set()
             await self.release.wait()
             self.continued = True
-        return self.report
+        return execution
 
 
 class RecoveryDurableFailureTests(unittest.IsolatedAsyncioTestCase):

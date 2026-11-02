@@ -175,7 +175,8 @@ class RecoveryManagerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         second = await self.recover_once(manager, recorder, source)
         for result in (first, second):
             self.assertIs(result.ingestion_report.status, ledger.IngestionStatus.SUCCESS)
-            self.assertIs(result.outcome, ledger.RecoveryOutcome.PENDING_RECONCILIATION)
+            self.assertIs(result.outcome, ledger.RecoveryOutcome.FAILED)
+            self.assertIs(result.reconciliation_result.reason, ledger.ReconciliationReason.CONFLICT_PRESENT)
             self.assertEqual((result.ingestion_report.inserted, result.ingestion_report.duplicates,
                               result.ingestion_report.conflicts), (0, 0, 1))
         self.assertEqual(self.repo.get(self.account.mt5_account_id, 9001), original)

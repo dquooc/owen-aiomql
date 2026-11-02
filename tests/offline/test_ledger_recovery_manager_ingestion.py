@@ -34,6 +34,13 @@ class ReportIngestor:
             raise self.failure
         return self.report
 
+    async def ingest_range_with_evidence(self, account_ref, from_time, to_time, *, ingestion_id=None):
+        report = await self.ingest_range(account_ref, from_time, to_time, ingestion_id=ingestion_id)
+        evidence = None if report.status is ledger.IngestionStatus.FAILED else ledger.SourceBatchEvidence(
+            report.ingestion_id, account_ref, ledger.RecoveryRange(report.requested_from, report.requested_to),
+            ledger.SourceHistoryAssurance.CALL_COMPLETED_UNVERIFIED, report.retrieved, ())
+        return ledger.IngestionExecution(report, evidence)
+
 
 class RecoveryManagerIngestionTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -113,11 +120,12 @@ class RecoveryManagerIngestionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result.checkpoint_after)
         self.assertEqual(len(self.ingestor.calls), 1)
 
-    async def test_success_with_conflicts_keeps_original_report_and_pending_outcome(self):
+    async def test_success_with_conflicts_keeps_original_report_and_rejects_reconciliation(self):
         report = replace(self.report, retrieved=3, normalized=3, inserted=1, duplicates=1, conflicts=1)
         self.ingestor.report = report
         result = await self.manager().recover(account=self.account)
-        self.assertIs(result.outcome, ledger.RecoveryOutcome.PENDING_RECONCILIATION)
+        self.assertIs(result.outcome, ledger.RecoveryOutcome.FAILED)
+        self.assertIs(result.reconciliation_result.reason, ledger.ReconciliationReason.CONFLICT_PRESENT)
         self.assertIs(result.ingestion_report, report)
         self.assertEqual((report.inserted, report.duplicates, report.conflicts), (1, 1, 1))
         self.assertIs(result.checkpoint_after, self.checkpoint)

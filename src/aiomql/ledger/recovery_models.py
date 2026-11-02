@@ -2,9 +2,13 @@
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from .ingestion import IngestionReport
 from .models import AccountRef, LedgerCheckpoint, RecoveryRange
+
+if TYPE_CHECKING:
+    from .reconciliation_models import ReconciliationResult
 
 
 class RecoveryOutcome(StrEnum):
@@ -17,8 +21,8 @@ class RecoveryResult:
     """Preserve one attempt's inputs, ingestion report, and explicit outcome.
 
     checkpoint_after is the state confirmed by this attempt, not a guarantee
-    against concurrent writers. Before reconciliation exists, a manager should
-    preserve checkpoint_before; equality is deliberately not enforced here.
+    against concurrent writers. A4.7 preserves checkpoint_before even if
+    reconciliation approves; equality is deliberately not enforced by this DTO.
     Type checks do not infer outcomes or validate orchestration decisions.
     """
 
@@ -28,6 +32,7 @@ class RecoveryResult:
     ingestion_report: IngestionReport
     outcome: RecoveryOutcome
     checkpoint_after: LedgerCheckpoint | None
+    reconciliation_result: "ReconciliationResult | None" = None
 
     def __post_init__(self) -> None:
         for name, expected in (("account", AccountRef), ("planned_range", RecoveryRange),
@@ -38,3 +43,7 @@ class RecoveryResult:
             value = getattr(self, name)
             if value is not None and not isinstance(value, LedgerCheckpoint):
                 raise TypeError(f"{name} must be a LedgerCheckpoint or None")
+        if self.reconciliation_result is not None:
+            from .reconciliation_models import ReconciliationResult
+            if not isinstance(self.reconciliation_result, ReconciliationResult):
+                raise TypeError("reconciliation_result must be a ReconciliationResult or None")

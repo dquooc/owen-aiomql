@@ -33,6 +33,11 @@ class Lookup:
             raise self.failure
         return self.account
 
+    def read_snapshot(self, *, account, requested_range):
+        # Inert read-side collaborator for orchestration-only tests. These
+        # fixtures supply unverified source evidence and cannot approve it.
+        return ledger.LedgerSnapshotEvidence(account, requested_range, (), ())
+
 
 class Checkpoints:
     def __init__(self, events):

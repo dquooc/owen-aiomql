@@ -181,7 +181,10 @@ class RecoveryManagerConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             for result, account, horizon, source in (
                     (first, self.account, self.h1, source_a), (second, self.other, self.h2, source_b)):
                 self.assert_result_scope(result, account, horizon, source)
-                self.assertIs(result.outcome, ledger.RecoveryOutcome.PENDING_RECONCILIATION)
+                self.assertIs(result.outcome, ledger.RecoveryOutcome.FAILED if correction
+                              else ledger.RecoveryOutcome.PENDING_RECONCILIATION)
+                if correction:
+                    self.assertIs(result.reconciliation_result.reason, ledger.ReconciliationReason.CONFLICT_PRESENT)
             self.assertEqual(first.planned_range.from_time,
                              datetime(2026, 11, 1, 9, 55, 0, 123456, tzinfo=timezone.utc))
             self.assertEqual(second.planned_range.from_time,
@@ -231,7 +234,10 @@ class RecoveryManagerConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             pair = (late_result, early_result) if reverse else (early_result, late_result)
             for result, horizon in zip(pair, (left_horizon, right_horizon)):
                 self.assert_result_scope(result, self.account, horizon, source)
-                self.assertIs(result.outcome, ledger.RecoveryOutcome.PENDING_RECONCILIATION)
+                self.assertIs(result.outcome, ledger.RecoveryOutcome.PENDING_RECONCILIATION if reverse
+                              else ledger.RecoveryOutcome.FAILED)
+                if not reverse:
+                    self.assertIs(result.reconciliation_result.reason, ledger.ReconciliationReason.CONFLICT_PRESENT)
                 self.assertEqual(result.checkpoint_before.completed_through, self.start)
             self.assertIsNot(pair[0], pair[1])
             self.assertIsNot(pair[0].planned_range, pair[1].planned_range)

@@ -79,6 +79,9 @@ out both with A4.4 and with the original ingestion implementation at `ea5818d`.
 
 ## RecoveryManager acceptance scope (A3)
 
+This section records the original A3 scope. A4.7 adds observational reconciliation
+without advancement; see [the current contracts](../../docs/reconciliation.md).
+
 The offline suite covers durable per-account checkpoints, pure range planning,
 immutable recovery configuration/results, read-only account preflight, and
 `RecoveryManager.prepare()` / `recover()` with an injected single horizon clock.
@@ -93,6 +96,10 @@ unimplemented. PostgreSQL, the Local Engine entrypoint and packaging/`.exe`, and
 the EA bridge are also outside the implemented scope.
 
 ## RecoveryManager concurrency boundary (A3.9)
+
+A4.7 now evaluates a consistent read snapshot after successful ingestion. This
+remains observational: no snapshot ownership, reconcile-and-advance guarantee,
+checkpoint advancement, or live MT5 safety is established.
 
 Same-account concurrency is **CONDITIONALLY SAFE** for the current ingestion-only,
 no-checkpoint-advancement stage. Attempts keep their checkpoint/range/report/horizon

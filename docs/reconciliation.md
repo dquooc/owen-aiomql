@@ -81,3 +81,51 @@ and arithmetic, processing failures, current/historical conflicts, each fingerpr
 field, missing/extra rows, insert/duplicate mixes, repeated tickets, empty and
 nonempty assurance, timestamp precision, precedence, deterministic unchanged inputs,
 and guards against I/O/normalization/clock/source calls.
+
+## A4.7 RecoveryManager integration
+
+`RecoveryResult` appends `reconciliation_result: ReconciliationResult | None = None`
+after its existing six fields. Legacy positional construction still works;
+frozen/slots and runtime type validation remain. Preparation is unchanged.
+
+`RecoveryManager` accepts an optional `snapshot_reader: LedgerSnapshotReader`.
+By default it uses the same repository as `account_lookup`; that repository must
+also implement the reader protocol for `recover()`. A separate reader may be
+injected. Missing read capability is rejected before recovery side effects.
+The manager knows no SQLite internals. `prepare()` needs no reader or ingestor.
+
+The flow is prepare (identity, checkpoint, one horizon, planning), one
+`ingest_range_with_evidence()` invocation, one snapshot for that exact account and
+range, then the pure evaluator with the exact attempt/report/source/snapshot.
+FAILED/PARTIAL ingestion returns FAILED with no reconciliation I/O and a None
+reconciliation result. Successful ingestion includes the evaluator result:
+
+| Reconciliation | Recovery outcome |
+| --- | --- |
+| REJECTED | FAILED |
+| INDETERMINATE | PENDING_RECONCILIATION |
+| APPROVED | PENDING_RECONCILIATION |
+
+The last mapping is deliberately transitional: APPROVED is not COMPLETED, and
+there is no COMPLETED enum member. Every manager return preserves the exact
+`checkpoint_before` as `checkpoint_after`. No advancement or auto-registration
+occurs, including on approval. Current guarded source evidence stays unverified;
+old relevant conflicts can reject a duplicates-only current ingestion.
+
+Snapshot/evaluator errors and cancellation propagate without fabricated results,
+retry or compensation; earlier ingestion commits remain. Snapshot and evaluator
+contracts are synchronous; cooperative task cancellation is delivered at awaits,
+and CancelledError raised by either synchronous collaborator also propagates.
+No background jobs or extra scheduling points are introduced.
+
+Concurrent reconciliation is observational. Its snapshot can become stale after
+the read transaction; this does not establish same-account reconcile-and-advance
+safety, ownership, or a lease. Conditional checkpoint advancement is not included.
+
+`tests/offline/test_recovery_reconciliation.py` exercises exact call/object flow,
+nonempty/empty guarded reads, verified approval without advancement, current/old
+conflicts, failed/partial short-circuit, persisted commits on storage failure and
+cancellation, snapshot/evaluator exceptions, bootstrap/overlap, account isolation,
+default/separate readers, invalid executions and backward-compatible result
+construction. Existing A3 fixtures only adopt the evidence API and optional result
+field; conflict outcomes change intentionally from pending to rejected/failed.

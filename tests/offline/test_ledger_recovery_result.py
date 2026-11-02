@@ -43,11 +43,12 @@ class RecoveryResultTests(unittest.TestCase):
         self.assertEqual(str(ledger.RecoveryOutcome.PENDING_RECONCILIATION), "PENDING_RECONCILIATION")
         self.assertIs(ledger.RecoveryOutcome("FAILED"), ledger.RecoveryOutcome.FAILED)
 
-    def test_bootstrap_result_preserves_the_six_supplied_fields(self):
+    def test_bootstrap_result_preserves_six_supplied_fields_and_defaults_reconciliation(self):
         result = self.result()
         self.assertEqual(tuple(field.name for field in fields(result)),
                          ("account", "checkpoint_before", "planned_range", "ingestion_report",
-                          "outcome", "checkpoint_after"))
+                          "outcome", "checkpoint_after", "reconciliation_result"))
+        self.assertIsNone(result.reconciliation_result)
         self.assertIs(result.account, self.account)
         self.assertIsNone(result.checkpoint_before)
         self.assertIs(result.planned_range, self.planned)
