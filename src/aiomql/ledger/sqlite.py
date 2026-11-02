@@ -10,7 +10,8 @@ import sqlite3
 from typing import Iterator
 from uuid import UUID, uuid5
 
-from .models import AccountRef, LedgerCheckpoint, NormalizedDeal
+from .models import AccountRef, LedgerCheckpoint, NormalizedDeal, RecoveryRange
+from .ledger_snapshot import LedgerRecordFingerprint, LedgerConflictEvidence, LedgerSnapshotEvidence, execution_in_range
 from .normalize import NORMALIZER_VERSION, normalize_deal
 from .repository import AccountIdentityError, CheckpointRegressionError, DealObservation, IngestOutcome, IngestResult
 
@@ -408,3 +409,59 @@ class SQLiteDealRepository:
             raw_payload_json=row["raw_payload"], observed_at=datetime.fromisoformat(row["observed_at"]),
             ingestion_id=row["ingestion_id"], normalizer_version=row["normalizer_version"])
             for row in rows)
+
+    def read_snapshot(self, *, account: AccountRef, requested_range: RecoveryRange) -> LedgerSnapshotEvidence:
+        """Read account, canonical deals and variants under one deferred snapshot.
+
+        Scan this account's variants as their execution time can differ from the
+        original. Reuse the authoritative normalizer to validate stored payloads;
+        decoding/corruption errors propagate, including for out-of-view rows.
+        The read transaction ends before returning; no future-state lease exists.
+        """
+        if not isinstance(account, AccountRef) or not isinstance(requested_range, RecoveryRange):
+            raise TypeError("read_snapshot requires AccountRef and RecoveryRange")
+        with closing(self._connect()) as conn:
+            conn.execute("PRAGMA query_only = ON")
+            conn.execute("BEGIN")
+            try:
+                registered = conn.execute("SELECT * FROM ledger_accounts WHERE mt5_account_id = ?",
+                                          (str(account.mt5_account_id),)).fetchone()
+                if registered is None or self._identity(self._account_from_row(registered)) != self._identity(account):
+                    raise AccountIdentityError("snapshot account is unknown or differs from persisted identity")
+                rows = conn.execute("SELECT * FROM deals WHERE mt5_account_id = ?",
+                                    (str(account.mt5_account_id),)).fetchall()
+                originals = {}
+                for row in rows:
+                    deal = self._deal_from_row(row)
+                    self._validate_deal(account, deal)
+                    originals[str(deal.id)] = LedgerRecordFingerprint(
+                        deal.deal_ticket, deal.payload_hash, deal.executed_at_msc, deal.normalizer_version)
+                observations = conn.execute(
+                    "SELECT o.* FROM deal_observations AS o JOIN deals AS d ON d.id = o.deal_id "
+                    "WHERE d.mt5_account_id = ? ORDER BY o.deal_id, o.payload_hash",
+                    (str(account.mt5_account_id),)).fetchall()
+                conflicts = []
+                for row in observations:
+                    variant = normalize_deal(account, json.loads(row["raw_payload"]),
+                                             datetime.fromisoformat(row["observed_at"]), row["ingestion_id"])
+                    if (type(row["normalizer_version"]) is not int
+                            or row["normalizer_version"] != variant.normalizer_version
+                            or row["payload_hash"] != variant.payload_hash
+                            or row["deal_id"] != str(variant.id)):
+                        raise ValueError("stored conflict is inconsistent with its canonical payload")
+                    alternative = LedgerRecordFingerprint(variant.deal_ticket, row["payload_hash"],
+                                                           variant.executed_at_msc, row["normalizer_version"])
+                    original = originals[row["deal_id"]]
+                    conflict = LedgerConflictEvidence(original, alternative)
+                    if (execution_in_range(original.executed_at_msc, requested_range)
+                            or execution_in_range(alternative.executed_at_msc, requested_range)):
+                        conflicts.append(conflict)
+                records = tuple(sorted((r for r in originals.values()
+                                        if execution_in_range(r.executed_at_msc, requested_range)),
+                                       key=lambda r: (r.executed_at_msc, r.deal_ticket)))
+                result = LedgerSnapshotEvidence(account, requested_range, records, tuple(conflicts))
+                conn.commit()
+                return result
+            finally:
+                if conn.in_transaction:
+                    conn.rollback()

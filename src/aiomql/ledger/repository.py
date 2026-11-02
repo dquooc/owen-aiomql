@@ -8,6 +8,19 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from .models import AccountRef, LedgerCheckpoint, NormalizedDeal
+from .models import RecoveryRange
+from .ledger_snapshot import LedgerSnapshotEvidence
+
+
+class LedgerSnapshotReader(Protocol):
+    """Read canonical records and unresolved variants in one consistent snapshot.
+
+    Membership follows ledger_snapshot.execution_in_range, not source endpoint
+    assumptions. Unknown/mismatched accounts and decoding/storage errors raise.
+    No registration, mutation, checkpoint access, or source calls are permitted.
+    """
+
+    def read_snapshot(self, *, account: AccountRef, requested_range: RecoveryRange) -> LedgerSnapshotEvidence: ...
 
 
 class AccountIdentityError(ValueError):
