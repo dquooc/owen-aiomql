@@ -1,4 +1,4 @@
-"""One-shot recovery ingestion and observational reconciliation; no advancement."""
+"""Coordinated recovery with approved-only durable conditional advancement."""
 
 from dataclasses import dataclass
 from typing import cast
@@ -10,6 +10,8 @@ from .recovery import plan_recovery_range
 from .recovery_config import Clock, RecoveryConfig
 from .recovery_models import RecoveryOutcome, RecoveryResult
 from .repository import AccountIdentityError, AccountLookupRepository, CheckpointRepository, LedgerSnapshotReader
+from .repository import ConditionalCheckpointRepository
+from .recovery_coordination import AccountRecoveryCoordinator, _DEFAULT_COORDINATOR
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,18 +28,19 @@ class RecoveryAttempt:
 
 
 class RecoveryManager:
-    """Prepare and ingest one account-scoped recovery range without advancing it.
+    """Recover one account range under process-local lifecycle ownership.
 
     An ingestor is required for recover(), but remains optional for prepare-only
     callers. The snapshot reader defaults to the account lookup repository, which
     must also implement LedgerSnapshotReader for recover(); a separate reader can
-    be supplied. Even approved reconciliation remains pending until a future
-    advancement phase. No ownership/lease or background work is created.
+    be supplied. Approved reconciliation completes only after durable checkpoint
+    and ledger-evidence CAS. No distributed lease or background work is created.
     """
 
     def __init__(self, *, account_lookup: AccountLookupRepository, checkpoints: CheckpointRepository,
                  config: RecoveryConfig, clock: Clock, ingestor: DealIngestor | None = None,
-                 snapshot_reader: LedgerSnapshotReader | None = None):
+                 snapshot_reader: LedgerSnapshotReader | None = None,
+                 coordinator: AccountRecoveryCoordinator | None = None):
         if not isinstance(config, RecoveryConfig):
             raise TypeError("config must be a RecoveryConfig")
         if not callable(clock):
@@ -48,6 +51,7 @@ class RecoveryManager:
         self.clock = clock
         self.ingestor = ingestor
         self.snapshot_reader = snapshot_reader if snapshot_reader is not None else cast(LedgerSnapshotReader, account_lookup)
+        self.coordinator = coordinator if coordinator is not None else _DEFAULT_COORDINATOR
 
     async def prepare(self, *, account: AccountRef) -> RecoveryAttempt:
         """Verify identity, read checkpoint, capture one horizon, and plan.
@@ -70,12 +74,26 @@ class RecoveryManager:
         return RecoveryAttempt(account=account, checkpoint_before=checkpoint, planned_range=planned_range)
 
     async def recover(self, *, account: AccountRef) -> RecoveryResult:
-        """Prepare once, ingest once, snapshot once and reconcile without advancing.
+        """Own the account lifecycle from verification through result construction.
+
+        The supplied non-nil UUID is only trusted after prepare() verifies its
+        registration under ownership, before reading checkpoint or horizon. This
+        avoids a pre-lock checkpoint read or duplicate identity/clock capture.
+        Cancellation/exception always releases ownership. Different accounts do
+        not share a lifecycle lock.
+        """
+        if not isinstance(account, AccountRef):
+            raise TypeError("account must be an AccountRef")
+        async with self.coordinator.hold(account.mt5_account_id):
+            return await self._recover_owned(account=account)
+
+    async def _recover_owned(self, *, account: AccountRef) -> RecoveryResult:
+        """Prepare, ingest, reconcile; only approved durable guarded CAS completes.
 
         Failed/partial ingestion short-circuits reconciliation. Rejected evidence
-        maps to FAILED; indeterminate/approved evidence stays pending. Snapshot
+        maps to FAILED; indeterminate evidence stays pending. Snapshot
         and evaluator exceptions and cancellation propagate unchanged.
-        Earlier deal commits remain persisted, and checkpoints are never written.
+        Earlier deal commits remain persisted. Approval alone is not completion.
         """
         ingestor = self.ingestor
         if ingestor is None:
@@ -91,6 +109,7 @@ class RecoveryManager:
             raise TypeError("ingestor must return an IngestionExecution")
         report = execution.report
         reconciliation_result = None
+        checkpoint_after = attempt.checkpoint_before
         outcome = {
             IngestionStatus.SUCCESS: RecoveryOutcome.PENDING_RECONCILIATION,
             IngestionStatus.SUCCESS_EMPTY: RecoveryOutcome.PENDING_RECONCILIATION,
@@ -109,6 +128,12 @@ class RecoveryManager:
                 ledger_evidence=snapshot)
             if reconciliation_result.status is ReconciliationStatus.REJECTED:
                 outcome = RecoveryOutcome.FAILED
+            elif reconciliation_result.status is ReconciliationStatus.APPROVED:
+                advancement = cast(ConditionalCheckpointRepository, self.checkpoints)
+                checkpoint_after = advancement.advance_checkpoint_if_expected(
+                    attempt.account, attempt.planned_range.to_time,
+                    expected=attempt.checkpoint_before, expected_snapshot=snapshot)
+                outcome = RecoveryOutcome.COMPLETED
         return RecoveryResult(account=attempt.account, checkpoint_before=attempt.checkpoint_before,
                               planned_range=attempt.planned_range, ingestion_report=report, outcome=outcome,
-                              checkpoint_after=attempt.checkpoint_before, reconciliation_result=reconciliation_result)
+                              checkpoint_after=checkpoint_after, reconciliation_result=reconciliation_result)

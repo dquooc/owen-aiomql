@@ -14,6 +14,7 @@ from .models import AccountRef, LedgerCheckpoint, NormalizedDeal, RecoveryRange
 from .ledger_snapshot import LedgerRecordFingerprint, LedgerConflictEvidence, LedgerSnapshotEvidence, execution_in_range
 from .normalize import NORMALIZER_VERSION, normalize_deal
 from .repository import AccountIdentityError, CheckpointRegressionError, DealObservation, IngestOutcome, IngestResult
+from .repository import CheckpointExpectationError, LedgerSnapshotChangedError
 
 
 _OBSERVATION_NAMESPACE = UUID("a3aa2b42-8d9d-41a5-8763-a593f60851d5")
@@ -253,6 +254,59 @@ class SQLiteDealRepository:
                      checkpoint.updated_at.isoformat(timespec="microseconds")))
         return checkpoint
 
+    def advance_checkpoint_if_expected(self, account: AccountRef, completed_through: datetime, *,
+                                       expected: LedgerCheckpoint | None,
+                                       expected_snapshot: LedgerSnapshotEvidence | None = None) -> LedgerCheckpoint:
+        """CAS the recovery boundary and revalidate evidence under BEGIN IMMEDIATE.
+
+        The snapshot read uses this SAME connection/transaction, so another writer
+        cannot insert a contradictory row between validation and durable commit.
+        updated_at is generated only as audit metadata; the target is caller-supplied.
+        Storage/commit errors propagate without reporting success or blind retry.
+        """
+        if not isinstance(account, AccountRef):
+            raise TypeError("account must be an AccountRef")
+        if expected is not None and not isinstance(expected, LedgerCheckpoint):
+            raise TypeError("expected must be a LedgerCheckpoint or None")
+        if expected_snapshot is not None and not isinstance(expected_snapshot, LedgerSnapshotEvidence):
+            raise TypeError("expected_snapshot must be LedgerSnapshotEvidence or None")
+        boundary = RecoveryRange(completed_through, completed_through).to_time
+        if expected is not None and expected.mt5_account_id != account.mt5_account_id:
+            raise CheckpointExpectationError("expected checkpoint belongs to another account")
+        account_id = str(account.mt5_account_id)
+        with self._write() as conn:
+            registered = conn.execute("SELECT * FROM ledger_accounts WHERE mt5_account_id = ?", (account_id,)).fetchone()
+            if registered is None or self._identity(self._account_from_row(registered)) != self._identity(account):
+                raise AccountIdentityError("conditional advancement account is unknown or mismatched")
+            row = conn.execute("SELECT * FROM ledger_checkpoints WHERE mt5_account_id = ?", (account_id,)).fetchone()
+            current = self._checkpoint_from_row(row) if row is not None else None
+            if ((current is None) != (expected is None)
+                    or (current is not None and expected is not None
+                        and current.completed_through != expected.completed_through)):
+                raise CheckpointExpectationError("durable checkpoint boundary changed since preparation")
+            if current is not None and boundary < current.completed_through:
+                raise CheckpointRegressionError("conditional checkpoint target precedes current boundary")
+            if expected_snapshot is not None:
+                if (expected_snapshot.account.mt5_account_id != account.mt5_account_id
+                        or self._identity(expected_snapshot.account) != self._identity(account)
+                        or expected_snapshot.requested_range.to_time != boundary):
+                    raise LedgerSnapshotChangedError("snapshot is not bound to this account/advancement target")
+                snapshot = self._snapshot_from_connection(conn, account, expected_snapshot.requested_range)
+                if (snapshot.records != expected_snapshot.records or snapshot.conflicts != expected_snapshot.conflicts):
+                    raise LedgerSnapshotChangedError("relevant ledger snapshot changed before advancement")
+            if current is not None and boundary == current.completed_through:
+                return current
+            checkpoint = LedgerCheckpoint(account.mt5_account_id, boundary, datetime.now(timezone.utc))
+            if current is None:
+                conn.execute("INSERT INTO ledger_checkpoints VALUES (?, ?, ?)",
+                             (account_id, boundary.isoformat(timespec="microseconds"),
+                              checkpoint.updated_at.isoformat(timespec="microseconds")))
+            else:
+                conn.execute("UPDATE ledger_checkpoints SET completed_through = ?, updated_at = ? WHERE mt5_account_id = ?",
+                             (boundary.isoformat(timespec="microseconds"),
+                              checkpoint.updated_at.isoformat(timespec="microseconds"), account_id))
+        return checkpoint
+
     @staticmethod
     def _deal_values(deal: NormalizedDeal) -> tuple:
         return (
@@ -424,44 +478,48 @@ class SQLiteDealRepository:
             conn.execute("PRAGMA query_only = ON")
             conn.execute("BEGIN")
             try:
-                registered = conn.execute("SELECT * FROM ledger_accounts WHERE mt5_account_id = ?",
-                                          (str(account.mt5_account_id),)).fetchone()
-                if registered is None or self._identity(self._account_from_row(registered)) != self._identity(account):
-                    raise AccountIdentityError("snapshot account is unknown or differs from persisted identity")
-                rows = conn.execute("SELECT * FROM deals WHERE mt5_account_id = ?",
-                                    (str(account.mt5_account_id),)).fetchall()
-                originals = {}
-                for row in rows:
-                    deal = self._deal_from_row(row)
-                    self._validate_deal(account, deal)
-                    originals[str(deal.id)] = LedgerRecordFingerprint(
-                        deal.deal_ticket, deal.payload_hash, deal.executed_at_msc, deal.normalizer_version)
-                observations = conn.execute(
-                    "SELECT o.* FROM deal_observations AS o JOIN deals AS d ON d.id = o.deal_id "
-                    "WHERE d.mt5_account_id = ? ORDER BY o.deal_id, o.payload_hash",
-                    (str(account.mt5_account_id),)).fetchall()
-                conflicts = []
-                for row in observations:
-                    variant = normalize_deal(account, json.loads(row["raw_payload"]),
-                                             datetime.fromisoformat(row["observed_at"]), row["ingestion_id"])
-                    if (type(row["normalizer_version"]) is not int
-                            or row["normalizer_version"] != variant.normalizer_version
-                            or row["payload_hash"] != variant.payload_hash
-                            or row["deal_id"] != str(variant.id)):
-                        raise ValueError("stored conflict is inconsistent with its canonical payload")
-                    alternative = LedgerRecordFingerprint(variant.deal_ticket, row["payload_hash"],
-                                                           variant.executed_at_msc, row["normalizer_version"])
-                    original = originals[row["deal_id"]]
-                    conflict = LedgerConflictEvidence(original, alternative)
-                    if (execution_in_range(original.executed_at_msc, requested_range)
-                            or execution_in_range(alternative.executed_at_msc, requested_range)):
-                        conflicts.append(conflict)
-                records = tuple(sorted((r for r in originals.values()
-                                        if execution_in_range(r.executed_at_msc, requested_range)),
-                                       key=lambda r: (r.executed_at_msc, r.deal_ticket)))
-                result = LedgerSnapshotEvidence(account, requested_range, records, tuple(conflicts))
+                result = self._snapshot_from_connection(conn, account, requested_range)
                 conn.commit()
                 return result
             finally:
                 if conn.in_transaction:
                     conn.rollback()
+
+    def _snapshot_from_connection(self, conn: sqlite3.Connection, account: AccountRef,
+                                  requested_range: RecoveryRange) -> LedgerSnapshotEvidence:
+        registered = conn.execute("SELECT * FROM ledger_accounts WHERE mt5_account_id = ?",
+                                  (str(account.mt5_account_id),)).fetchone()
+        if registered is None or self._identity(self._account_from_row(registered)) != self._identity(account):
+            raise AccountIdentityError("snapshot account is unknown or differs from persisted identity")
+        rows = conn.execute("SELECT * FROM deals WHERE mt5_account_id = ?",
+                            (str(account.mt5_account_id),)).fetchall()
+        originals = {}
+        for row in rows:
+            deal = self._deal_from_row(row)
+            self._validate_deal(account, deal)
+            originals[str(deal.id)] = LedgerRecordFingerprint(
+                deal.deal_ticket, deal.payload_hash, deal.executed_at_msc, deal.normalizer_version)
+        observations = conn.execute(
+            "SELECT o.* FROM deal_observations AS o JOIN deals AS d ON d.id = o.deal_id "
+            "WHERE d.mt5_account_id = ? ORDER BY o.deal_id, o.payload_hash",
+            (str(account.mt5_account_id),)).fetchall()
+        conflicts = []
+        for row in observations:
+            variant = normalize_deal(account, json.loads(row["raw_payload"]),
+                                     datetime.fromisoformat(row["observed_at"]), row["ingestion_id"])
+            if (type(row["normalizer_version"]) is not int
+                    or row["normalizer_version"] != variant.normalizer_version
+                    or row["payload_hash"] != variant.payload_hash
+                    or row["deal_id"] != str(variant.id)):
+                raise ValueError("stored conflict is inconsistent with its canonical payload")
+            alternative = LedgerRecordFingerprint(variant.deal_ticket, row["payload_hash"],
+                                                   variant.executed_at_msc, row["normalizer_version"])
+            original = originals[row["deal_id"]]
+            conflict = LedgerConflictEvidence(original, alternative)
+            if (execution_in_range(original.executed_at_msc, requested_range)
+                    or execution_in_range(alternative.executed_at_msc, requested_range)):
+                conflicts.append(conflict)
+        records = tuple(sorted((r for r in originals.values()
+                                if execution_in_range(r.executed_at_msc, requested_range)),
+                               key=lambda r: (r.executed_at_msc, r.deal_ticket)))
+        return LedgerSnapshotEvidence(account, requested_range, records, tuple(conflicts))

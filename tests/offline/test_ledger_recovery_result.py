@@ -36,10 +36,10 @@ class RecoveryResultTests(unittest.TestCase):
         values.update(changes)
         return ledger.RecoveryResult(**values)
 
-    def test_outcomes_have_exactly_two_stable_string_values(self):
+    def test_outcomes_include_completed_after_conditional_advancement(self):
         self.assertEqual(
             {name: member.value for name, member in ledger.RecoveryOutcome.__members__.items()},
-            {"PENDING_RECONCILIATION": "PENDING_RECONCILIATION", "FAILED": "FAILED"})
+            {"PENDING_RECONCILIATION": "PENDING_RECONCILIATION", "FAILED": "FAILED", "COMPLETED": "COMPLETED"})
         self.assertEqual(str(ledger.RecoveryOutcome.PENDING_RECONCILIATION), "PENDING_RECONCILIATION")
         self.assertIs(ledger.RecoveryOutcome("FAILED"), ledger.RecoveryOutcome.FAILED)
 

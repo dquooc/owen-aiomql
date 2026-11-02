@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 class RecoveryOutcome(StrEnum):
     PENDING_RECONCILIATION = "PENDING_RECONCILIATION"
     FAILED = "FAILED"
+    COMPLETED = "COMPLETED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,8 +22,8 @@ class RecoveryResult:
     """Preserve one attempt's inputs, ingestion report, and explicit outcome.
 
     checkpoint_after is the state confirmed by this attempt, not a guarantee
-    against concurrent writers. A4.7 preserves checkpoint_before even if
-    reconciliation approves; equality is deliberately not enforced by this DTO.
+    against concurrent writers. COMPLETED requires manager approval and durable
+    conditional advancement; this passive DTO does not infer orchestration.
     Type checks do not infer outcomes or validate orchestration decisions.
     """
 

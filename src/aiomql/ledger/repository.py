@@ -43,6 +43,14 @@ class CheckpointRegressionError(ValueError):
     """The requested completed boundary precedes the persisted checkpoint."""
 
 
+class CheckpointExpectationError(ValueError):
+    """The durable account/boundary no longer matches the prepared expectation."""
+
+
+class LedgerSnapshotChangedError(ValueError):
+    """Relevant ledger evidence changed before the advancement transaction."""
+
+
 class CheckpointRepository(Protocol):
     """Independent storage boundary for account-scoped durable checkpoints.
 
@@ -64,6 +72,20 @@ class CheckpointRepository(Protocol):
         regress progress. Failures propagate without reporting advancement.
         """
         ...
+
+
+class ConditionalCheckpointRepository(Protocol):
+    """Atomic expected-boundary CAS, optionally guarding approved ledger evidence.
+
+    None expects absence. Otherwise UUID/completed_through must match; updated_at
+    is audit metadata, not a boundary version. Snapshot revalidation and checkpoint
+    compare/write must share one write transaction. Errors propagate without retry.
+    No approval/source completeness is inferred by this low-level storage API.
+    """
+
+    def advance_checkpoint_if_expected(self, account: AccountRef, completed_through: datetime, *,
+                                       expected: LedgerCheckpoint | None,
+                                       expected_snapshot: LedgerSnapshotEvidence | None = None) -> LedgerCheckpoint: ...
 
 
 class IngestOutcome(StrEnum):

@@ -221,17 +221,17 @@ class RecoveryManagerConcurrencyTests(unittest.IsolatedAsyncioTestCase):
             left = self.launch(manager, self.account)
             await source.wait_for_entry(left_horizon)
             right = self.launch(manager, self.account)
-            await source.wait_for_entry(right_horizon)
             self.assertFalse(left.done())
             self.assertFalse(right.done())
-            early, late = (right, left) if reverse else (left, right)
-            early_horizon, late_horizon = (right_horizon, left_horizon) if reverse else (left_horizon, right_horizon)
-            source.release[early_horizon].set()
-            early_result = await self.finish(early)
-            self.assertFalse(late.done())
-            source.release[late_horizon].set()
-            late_result = await self.finish(late)
-            pair = (late_result, early_result) if reverse else (early_result, late_result)
+            # A4.8 owns the full lifecycle; the second source cannot enter
+            # until the first recovery releases same-account ownership.
+            self.assertNotIn(right_horizon, source.returned)
+            source.release[left_horizon].set()
+            left_result = await self.finish(left)
+            await source.wait_for_entry(right_horizon)
+            source.release[right_horizon].set()
+            right_result = await self.finish(right)
+            pair = (left_result, right_result)
             for result, horizon in zip(pair, (left_horizon, right_horizon)):
                 self.assert_result_scope(result, self.account, horizon, source)
                 self.assertIs(result.outcome, ledger.RecoveryOutcome.PENDING_RECONCILIATION if reverse
@@ -261,8 +261,9 @@ class RecoveryManagerConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(vars(manager.ingestor), ingestor_fields)
 
     async def test_two_repository_instances_replay_bootstrap_in_parallel_worker_threads(self):
-        barrier = Barrier(2)
-        sources = [ThreadBarrierSource(self.account, [self.raw()], barrier) for _ in range(2)]
+        # Same-process ownership now serializes even across worker event loops;
+        # a two-fetch barrier would intentionally deadlock that contract.
+        sources = [FakeSource(self.account, [self.raw()]) for _ in range(2)]
         clocks = [CountingClock(self.h1, []), CountingClock(self.h2, [])]
         managers = [self.manager(repo, source, clock)
                     for repo, source, clock in zip((self.repo, self.other_repo), sources, clocks)]
@@ -322,11 +323,11 @@ class RecoveryManagerConcurrencyTests(unittest.IsolatedAsyncioTestCase):
         cancelled = self.launch(manager, self.account)
         await source.wait_for_entry(self.h1)
         survivor = self.launch(manager, self.account)
-        await source.wait_for_entry(self.h2)
         cancelled.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await self.finish(cancelled)
         self.assertTrue(cancelled.cancelled())
+        await source.wait_for_entry(self.h2)
         self.assertFalse(survivor.done())
         self.assertFalse(survivor.cancelled())
         self.assertEqual(self.count("deals"), 0)

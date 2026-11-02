@@ -1,5 +1,8 @@
 # Reconciliation evidence
 
+The A4.5–A4.7 sections describe their accepted historical stages. A4.8 below
+supersedes the transitional no-advancement mapping for approved evidence.
+
 ## A4.5 ledger snapshot
 
 `LedgerSnapshotReader.read_snapshot(account=..., requested_range=...)` returns
@@ -129,3 +132,48 @@ cancellation, snapshot/evaluator exceptions, bootstrap/overlap, account isolatio
 default/separate readers, invalid executions and backward-compatible result
 construction. Existing A3 fixtures only adopt the evidence API and optional result
 field; conflict outcomes change intentionally from pending to rejected/failed.
+
+## A4.8 conditional advancement and ownership
+
+`ConditionalCheckpointRepository.advance_checkpoint_if_expected(account, target,
+expected=..., expected_snapshot=...)` returns only after commit. SQLite compares
+the registered account and current checkpoint under `BEGIN IMMEDIATE`: None
+requires absence; an existing expectation compares UUID and completed_through.
+updated_at is audit metadata, not a boundary version. Staleness raises
+`CheckpointExpectationError`; it is not a reconciliation reason. Equal targets
+preserve the existing checkpoint/audit time, and backward targets still raise
+`CheckpointRegressionError`. The legacy A1 monotonic API is unchanged.
+
+The manager always supplies its approved snapshot. The same write transaction
+revalidates canonical records and unresolved conflicts using the same connection,
+before modifying the checkpoint. A changed relevant snapshot raises
+`LedgerSnapshotChangedError`. No writer can interleave between that validation
+and commit. Standalone CAS without a snapshot is a low-level boundary primitive,
+not authorization to declare reconciliation complete.
+
+Only APPROVED plus a committed guarded CAS yields COMPLETED. Its target is
+exactly `attempt.planned_range.to_time`, and checkpoint_after is the storage
+return. All failed/pending paths preserve checkpoint_before. The injected planning
+clock remains once per attempt; the storage wall clock generates updated_at audit
+metadata only and is never used as a completion boundary. Storage/commit errors
+propagate without blind retry or a successful result.
+
+`AccountRecoveryCoordinator` owns the full verify/prepare/ingest/snapshot/evaluate/
+advance/result lifecycle by persisted UUID. To avoid duplicate identity reads or
+pre-lock checkpoint capture, ownership is acquired using the caller's non-nil
+UUID, then registration is verified as the first preparation step under ownership.
+An invalid mapping cannot reach checkpoint/clock/source work.
+
+The process default is shared across manager instances, threads and event loops.
+A short threading mutex protects registry creation/handoff/removal only; it never
+spans application I/O or awaits. FIFO waiters use futures on their own loops and
+threadsafe callbacks, without polling/background tasks. Cancelled queued/granted
+waiters release only their own ownership; entries disappear when idle. Same-task
+reentrancy raises. Separate accounts progress independently. A coordinator can be
+injected for an explicit separate coordination domain; durable CAS still protects
+independent processes/domains. This is not a distributed lease, and abandoning a
+live owner/event loop without cancellation is outside the cooperative contract.
+
+Current production source assurance remains CALL_COMPLETED_UNVERIFIED and thus
+pending. Verified evidence used by advancement tests is an offline stronger-source
+double, not a new MT5 guarantee. Windows final acceptance is required.

@@ -110,7 +110,7 @@ class RecoveryReconciliationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(source.fetch_calls), 1)
             self.assertEqual(self.clock.calls, 1)
 
-    async def test_approved_still_pending_no_checkpoint_creation_or_advancement(self):
+    async def test_approved_completes_only_after_durable_conditional_advancement(self):
         manager, source, ingestor = self.manager((raw_deal(),))
         ingest = ingestor.ingest_range_with_evidence
 
@@ -122,10 +122,14 @@ class RecoveryReconciliationTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(ingestor, "ingest_range_with_evidence", side_effect=stronger_contract):
             result = await manager.recover(account=self.account)
         self.assertIs(result.reconciliation_result.status, ledger.ReconciliationStatus.APPROVED)
-        self.assertIs(result.outcome, ledger.RecoveryOutcome.PENDING_RECONCILIATION)
-        self.assertEqual((result.checkpoint_before, result.checkpoint_after), (None, None))
+        self.assertIs(result.outcome, ledger.RecoveryOutcome.COMPLETED)
+        self.assertIsNone(result.checkpoint_before)
+        self.assertEqual(result.checkpoint_after, self.repo.get_checkpoint(self.account.mt5_account_id))
+        checkpoint = result.checkpoint_after
+        self.before_rows = ((str(self.account.mt5_account_id), checkpoint.completed_through.isoformat(timespec="microseconds"),
+                             checkpoint.updated_at.isoformat(timespec="microseconds")),)
         self.assertEqual(len(source.fetch_calls), 1)
-        self.assertNotIn("COMPLETED", ledger.RecoveryOutcome.__members__)
+        self.assertIn("COMPLETED", ledger.RecoveryOutcome.__members__)
 
     async def test_rejected_conflict_and_later_duplicates_only_both_fail(self):
         manager, source, _ = self.manager((raw_deal(), raw_deal(profit=99)))
