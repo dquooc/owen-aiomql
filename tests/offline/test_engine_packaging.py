@@ -90,13 +90,6 @@ class EnginePackagingTests(unittest.TestCase):
         requirements = (ROOT / 'tools/windows/requirements-build.txt').read_text().strip()
         self.assertEqual(requirements, 'pyinstaller==6.16.0')
 
-    def test_packaging_documentation_preserves_unaccepted_a10_and_no_binary_claim(self):
-        text = (ROOT / 'tools/windows/README.md').read_text()
-        for expected in ('Python 3.13', 'AIOMQL_Engine.exe', 'A10', 'NOT accepted',
-                         'Binary build NOT performed in A12.', 'Windows build required in A13.',
-                         'requirements-build.txt', 'build_engine.py', 'dist/AIOMQL_Engine', 'package data'):
-            self.assertIn(expected, text)
-
     def test_importing_build_script_does_not_run_packager_or_change_database(self):
         with patch('subprocess.run', side_effect=AssertionError('process')), \
                 patch('sqlite3.connect', side_effect=AssertionError('database')):

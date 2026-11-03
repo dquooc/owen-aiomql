@@ -8,6 +8,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import sys
 import tempfile
 import unittest
@@ -162,6 +163,7 @@ def check_engine_readonly_safety():
     from aiomql_engine import compose_runtime
     from aiomql_engine.config import EngineConfig, EngineMode
     from aiomql_engine.execution import BrokerWriteBarrier, BrokerWriteDeniedError
+    from aiomql_engine.mt5_readonly import MT5ReadOnlySession
     from aiomql_engine.safety import StartupSafetyError, evaluate_startup_safety
 
     class LocalWriter:
@@ -171,11 +173,28 @@ def check_engine_readonly_safety():
             self.calls += 1
             raise AssertionError("Local writer must remain unreachable")
 
+    class LocalReadSDK:
+        """The engine safety probe stays local even after A16 session wiring."""
+        def initialize(self, *, timeout):
+            return True
+
+        def account_info(self):
+            return SimpleNamespace(login=1, server='local-fake')
+
+        def terminal_info(self):
+            return SimpleNamespace(connected=True)
+
+        def history_deals_get(self, *args):
+            raise AssertionError('Engine safety probe must not fetch history')
+
+        def shutdown(self):
+            pass
+
     config = EngineConfig(mode=EngineMode.READ_ONLY, mt5_enabled=True, dry_run=True,
                           read_only=True, recovery_enabled=False, order_submission_enabled=False,
-                          live_trading_enabled=False)
+                          live_trading_enabled=False, mt5_expected_login=1, mt5_expected_server='local-fake')
     decision = evaluate_startup_safety(config)
-    runtime = compose_runtime(config)
+    runtime = compose_runtime(config, session_factory=lambda cfg: MT5ReadOnlySession(cfg, sdk_loader=LocalReadSDK))
     writer = LocalWriter()
     results, denied = [], []
 

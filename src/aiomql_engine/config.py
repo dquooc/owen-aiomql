@@ -41,6 +41,10 @@ class EngineConfig:
     read_only: bool = True
     live_trading_enabled: bool = False
     order_submission_enabled: bool = False
+    mt5_expected_login: int | None = field(default=None, repr=False)
+    mt5_expected_server: str | None = field(default=None, repr=False)
+    mt5_timeout_ms: int = 10000
+    mt5_max_history_days: int = 7
 
     def __post_init__(self) -> None:
         for name, expected in (('mode', EngineMode), ('log_level', LogLevel), ('recovery_overlap', timedelta)):
@@ -54,6 +58,16 @@ class EngineConfig:
                 raise TypeError(f'{name} must be bool')
         if self.live_trading_enabled or self.order_submission_enabled or not self.dry_run or not self.read_only:
             raise ValueError('bootstrap supports only dry-run/read-only with trading and submission disabled')
+        if self.mt5_expected_login is not None and (type(self.mt5_expected_login) is not int or self.mt5_expected_login <= 0):
+            raise ValueError('mt5_expected_login must be a positive integer')
+        if self.mt5_expected_server is not None and (not isinstance(self.mt5_expected_server, str)
+                                                    or not self.mt5_expected_server.strip()):
+            raise ValueError('mt5_expected_server must be nonblank text')
+        for name in ('mt5_timeout_ms', 'mt5_max_history_days'):
+            if type(getattr(self, name)) is not int or getattr(self, name) <= 0:
+                raise ValueError(f'{name} must be a positive integer')
+        if self.mt5_timeout_ms > 2147483647 or self.mt5_max_history_days > 999999999:
+            raise ValueError('MT5 timeout or history limit is out of range')
         if not isinstance(self.database_path, (str, os.PathLike)):
             raise TypeError('database_path must be text path-like')
         try:
@@ -66,6 +80,12 @@ class EngineConfig:
         except (TypeError, ValueError, OSError):
             raise ValueError('database_path must name a file') from None
         object.__setattr__(self, 'database_path', path)
+
+    def validate_mt5_identity(self) -> None:
+        """Require an explicit binding before constructing any connection adapter."""
+        self.__post_init__()
+        if self.mt5_expected_login is None or self.mt5_expected_server is None:
+            raise ValueError('MT5 connectivity requires expected login and server')
 
 
 def load_config(environ: Mapping[str, str] | None = None) -> EngineConfig:
@@ -84,6 +104,10 @@ def load_config(environ: Mapping[str, str] | None = None) -> EngineConfig:
         ('LIVE_TRADING_ENABLED', 'live_trading_enabled', _boolean),
         ('ORDER_SUBMISSION_ENABLED', 'order_submission_enabled', _boolean),
         ('RECOVERY_OVERLAP_MS', 'recovery_overlap', _duration),
+        ('MT5_EXPECTED_LOGIN', 'mt5_expected_login', _positive_integer),
+        ('MT5_EXPECTED_SERVER', 'mt5_expected_server', _server),
+        ('MT5_TIMEOUT_MS', 'mt5_timeout_ms', _positive_integer),
+        ('MT5_MAX_HISTORY_DAYS', 'mt5_max_history_days', _positive_integer),
     ):
         name = 'AIOMQL_ENGINE_' + suffix
         raw = env.get(name)
@@ -108,3 +132,15 @@ def _duration(value: str) -> timedelta:
     if re.fullmatch(r'[0-9]+', value) is None:
         raise ValueError
     return timedelta(milliseconds=int(value))
+
+
+def _positive_integer(value: str) -> int:
+    if re.fullmatch(r'[0-9]+', value) is None or int(value) <= 0:
+        raise ValueError
+    return int(value)
+
+
+def _server(value: str) -> str:
+    if not value.strip():
+        raise ValueError
+    return value

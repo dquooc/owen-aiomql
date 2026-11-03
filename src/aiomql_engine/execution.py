@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import NoReturn, Protocol
 
 from .safety import StartupSafetyDecision
+from .mt5_readonly import ReadOnlySession
 
 
 class BrokerWriteDeniedError(PermissionError):
@@ -61,10 +62,11 @@ class BrokerWriteBarrier:
 
 @dataclass(frozen=True, slots=True)
 class EngineRuntime:
-    """Local composition handle only, without sessions, database or background work."""
+    """Explicit offline or read-only session ownership; no recovery/background work."""
 
     policy: BrokerWritePolicy
     broker_writes: BrokerWriteBarrier
+    read_only_session: ReadOnlySession | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.policy, BrokerWritePolicy) or not isinstance(self.broker_writes, BrokerWriteBarrier):
@@ -73,26 +75,32 @@ class EngineRuntime:
             raise ValueError('runtime policy must match its broker-write barrier')
 
     def run(self) -> int:
-        """Complete the resource-free offline run; no loop or recovery activation.
+        """Open the explicitly supplied read session, without fetching history.
 
-        There are currently no services to start. Repeated runs are independent
-        local no-ops; future resource ownership must extend this explicit boundary.
+        Offline runs remain resource-free. The caller owns shutdown after a
+        successful run; errors/cancellation during open release the session here.
         """
         BrokerWritePolicy.__post_init__(self.policy)
+        if self.read_only_session is not None:
+            try:
+                self.read_only_session.open()
+            except BaseException:
+                self.shutdown()
+                raise
         return 0
 
     def shutdown(self) -> None:
-        """Idempotent resource-free cleanup; the shared console logger is not owned here."""
+        """Release the session; its shutdown is idempotent. Logger ownership is unchanged."""
+        if self.read_only_session is not None:
+            self.read_only_session.shutdown()
 
 
-def build_runtime(decision: StartupSafetyDecision) -> EngineRuntime:
-    """Project an approved startup decision into a non-live engine handle.
-
-    Local computation/planning/logging remain usable. This does not execute any
-    of them, run recovery, or add a read adapter before the Windows-only phase.
-    """
+def build_runtime(decision: StartupSafetyDecision, *, read_only_session: ReadOnlySession | None = None) -> EngineRuntime:
+    """Bind an optional read session after the gate, without opening it or recovery."""
     if not isinstance(decision, StartupSafetyDecision):
         raise TypeError('decision must be a StartupSafetyDecision')
     StartupSafetyDecision.__post_init__(decision)
+    if read_only_session is not None and not decision.read_only_mt5:
+        raise ValueError('startup safety prohibits an MT5 session')
     policy = BrokerWritePolicy(dry_run=decision.dry_run, read_only=decision.read_only)
-    return EngineRuntime(policy, BrokerWriteBarrier(policy))
+    return EngineRuntime(policy, BrokerWriteBarrier(policy), read_only_session)

@@ -229,3 +229,143 @@ completed explicit source-level smoke, not new runtime wiring or a binary live
 test. No rebuild, live run, or runtime change accompanies this documentation
 update. See [the handover](../AIOMQL_CODEX_HANDOVER.md#17-a10--mt5-read-only-smoke--accepted)
 for the accepted evidence.
+
+## A16 engine-owned read-only session
+
+A16 extends the earlier bootstrap stages above with a real session seam. Fake-SDK
+implementation validation and the separate Windows native read-only acceptance
+below have passed. The A10 acceptance and existing binary record remain historical
+evidence for their original scope; they were not substituted for A16 validation.
+
+`aiomql_engine.mt5_readonly.MT5ReadOnlySession` implements the existing
+`aiomql.ledger.source.MetaTraderHistoryClient` structurally: async
+`account_info()` and keyword-only `history_deals_get(date_from=..., date_to=...)`.
+It also exposes async `terminal_info()` and synchronous `open()` / `shutdown()`.
+Account/terminal results are minimal immutable engine snapshots. History retains
+raw SDK records for the existing source/normalizer/ingestor; A16 adds no evidence
+model, account registration, ledger wiring, or reconciliation policy.
+
+`compose_runtime(config, session_factory=...)` evaluates the existing safety gate,
+requires an explicit expected account binding, then constructs the injected
+`ReadOnlySession`. Construction does not load or initialize the SDK. Only
+`runtime.run()` opens it. `run_engine(config, session_factory=...)` owns the
+run/finally-shutdown pair and does not fetch history. Explicit composition callers
+own the same lifecycle and may issue bounded reads between run and shutdown.
+Offline composition never invokes the session factory. Recovery remains rejected.
+
+The default loader imports `MetaTrader5` only inside explicit session open. The
+session binds only initialize/account/terminal/history/shutdown callables; it
+exposes no SDK facade, login/account-switch operation, arbitrary attribute
+forwarding or broker writer. It uses the terminal's existing authentication;
+configure/sign in to the intended terminal separately. No credentials, `.env`
+loader or credential fallback is introduced.
+
+Additional EngineConfig / explicit `AIOMQL_ENGINE_` environment settings:
+
+| Suffix | Default | Contract |
+| --- | --- | --- |
+| MT5_EXPECTED_LOGIN | unset | Positive integer; required before MT5 session construction |
+| MT5_EXPECTED_SERVER | unset | Exact nonblank server identity; required before construction |
+| MT5_TIMEOUT_MS | 10000 | Positive initialization timeout, at most 2147483647 ms |
+| MT5_MAX_HISTORY_DAYS | 7 | Positive maximum duration per history request, at most 999999999 days |
+
+Connectivity still requires `MODE=read_only`, `MT5_ENABLED=true`,
+`DRY_RUN=true`, `READ_ONLY=true`, with trading/order submission/recovery disabled.
+Identity settings are excluded from config repr and startup logs. Startup logs
+describe requested capabilities, not proof that connection has succeeded.
+
+Open validates account login/server and terminal.connected. Every bounded history
+read validates aware ordered UTC endpoints (preserving microseconds), enforces the
+configured duration limit, checks account and terminal before the SDK call, then
+checks account again before returning the batch. A mismatch discards the batch and
+closes the session. Empty history is valid; None is a failure. Source collection
+and record validation remain in MetaTraderDealHistorySource and DealIngestor.
+Real source assurance stays `CALL_COMPLETED_UNVERIFIED`.
+
+Open is idempotent while active; shutdown is idempotent and permanently closes the
+session. Each initialization attempt has at most one native shutdown attempt,
+including failed initialization, startup verification failure and read errors.
+SDK exceptions are replaced by fixed diagnostics; cancellation/KeyboardInterrupt
+propagate after cleanup. A shutdown failure closes the local handle and is not
+retried; if cleanup fails during another error, the original error is preserved.
+
+Native SDK calls are synchronous, including those behind async read signatures.
+A session lock serializes native operations; there is no worker, service loop,
+scheduler, automatic retry or recovery. Cancellation is checked before reads;
+an in-flight native call cannot be interrupted, and the configured initialization
+timeout is not a history timeout. Callers must use finally-protected shutdown.
+Session locks do not coordinate separate sessions/processes or prevent external
+terminal account switching (including A -> B -> A). This remains an application
+read-only boundary, not a Python security sandbox or history-completeness proof.
+
+Offline verification uses `tests/offline/test_engine_mt5_readonly.py` with fake SDK
+mutation traps and existing engine/source contracts. The A10 local safety probe
+now injects an inert read session so it continues to test capability/denial without
+native SDK access. The obsolete packaging test requiring the old phrase
+`NOT accepted` was removed; executable build/launcher contracts remain covered.
+
+A16 does not change the build script's SDK exclusion or implement persistent
+recovery, production SQLite composition, monitoring, packaging, or trading.
+
+### A16 Windows native acceptance — 2026-11-03
+
+**ACCEPTED for explicit bounded read-only sessions through engine composition.**
+Executed in `E:\BLC\Dev_AI_MT5` with `.venv\Scripts\python.exe`, Python 3.13.18
+and MetaTrader5 distribution 5.0.5640. Base HEAD remained `581b48b`; A16 source was
+uncommitted. No commit, push, rebuild, account login/switch or credential loading
+was performed. Opt-in and engine settings were scoped to a fresh child process.
+
+`tools/windows/accept_a16_readonly.py` exercised the actual default
+`compose_runtime -> MT5ReadOnlySession -> runtime.run -> shutdown` path. A narrow
+instrumentation facade forwarded only native initialize, account/terminal reads,
+history and shutdown. The SDK importer was traced, with a process-local native
+writer tripwire installed but never invoked. Offline/default startup did not load
+the SDK; read-only composition remained lazy until runtime.run. The currently
+authenticated terminal was verified as demo without printing account identity.
+
+Observed positive native attempt:
+
+```text
+runtime result = 0
+initialize PASS; terminal connected PASS
+pre-fetch expected-account guard PASS
+UTC request: 2026-10-27T03:47:23.814628+00:00
+          -> 2026-11-03T03:47:23.814628+00:00
+configured limit = 7 days; actual window = 7 days
+native history calls = 1; result not None; retrieved deals = 1
+post-fetch expected-account guard PASS
+shutdown PASS; repeated cleanup idempotent
+closed session read rejected without another native call
+```
+
+Three invalid/unbounded/reversed history requests were rejected before any native
+history call. A second native attempt changed only the expected identity; the
+same actual demo account was observed and rejected by the A16 adapter before
+history. No account switch was attempted. Across both attempts, native initialize
+calls were 2, shutdown calls were 2, and no connection remained owned by the
+runner. Disconnected/missing terminal cases were checked safely with fake SDKs.
+
+```text
+native order_send calls = 0
+broker mutation calls = 0
+order mutations = 0
+position mutations = 0
+writer tripwire attempts = 0
+```
+
+Source A16 files and all 865 pre-existing SQLite files were checksum-identical
+immediately before/after the native run. No ledger/recovery path was activated.
+Existing source assurance stays CALL_COMPLETED_UNVERIFIED; this acceptance makes
+no claim of complete history, checkpoint completion, packaged runtime readiness,
+or trading capability.
+
+Pre-review confirmed the removed packaging test checked prose strings only,
+including obsolete `NOT accepted` wording. Runtime, write-barrier, SDK exclusion,
+launcher and build contracts remain covered; no behavioral replacement was needed.
+
+Verification: **31/31 focused A16 PASS**, **2/2 runner fake-contract PASS**, native
+acceptance runner **exit 0**, and post-native full offline **734/734 PASS**, no
+skips, 12.360s, exit 0. The two added runner tests cover successful one-fetch
+composition/negative identity/cleanup and a non-demo rejection before history.
+`git diff --check` passed. Native testing did not execute the old A10 live suite
+or unrestricted pytest discovery.

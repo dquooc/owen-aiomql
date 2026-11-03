@@ -30,7 +30,7 @@ class StartupSafetyDecision:
 
 
 def evaluate_startup_safety(config: EngineConfig) -> StartupSafetyDecision:
-    """Authorize only local bootstrap and optional FUTURE read-only connection.
+    """Authorize only local bootstrap and an optional A16 read-only connection.
 
     A permission is not runtime wiring. Recovery and all broker writes remain
     unsupported. Reject requests explicitly, without repairing flags or exposing

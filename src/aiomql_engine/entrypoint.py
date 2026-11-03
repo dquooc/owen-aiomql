@@ -1,13 +1,14 @@
-"""Callable boundary for the future local engine; no live runtime work yet."""
+"""Explicit offline/read-only engine composition and synchronous lifecycle."""
 
 from .config import EngineConfig, load_config
 from .logging import configure_logging
 from .safety import evaluate_startup_safety
 from .execution import EngineRuntime, build_runtime
+from .mt5_readonly import MT5ReadOnlySession, SessionFactory
 
 
-def compose_runtime(config: EngineConfig | None = None) -> EngineRuntime:
-    """Construct one offline runtime only after config/logging/startup safety.
+def compose_runtime(config: EngineConfig | None = None, *, session_factory: SessionFactory | None = None) -> EngineRuntime:
+    """Construct one runtime only after config/logging/startup safety.
 
     No recovery dependency is instantiated: startup safety rejects recovery
     requests until supported wiring exists. The caller owns run/shutdown.
@@ -17,7 +18,16 @@ def compose_runtime(config: EngineConfig | None = None) -> EngineRuntime:
         raise TypeError('config must be an EngineConfig')
     logger = configure_logging(config.log_level)
     decision = evaluate_startup_safety(config)
-    runtime = build_runtime(decision)
+    if decision.read_only_mt5:
+        config.validate_mt5_identity()
+        session = (MT5ReadOnlySession if session_factory is None else session_factory)(config)
+        try:
+            runtime = build_runtime(decision, read_only_session=session)
+        except BaseException:
+            session.shutdown()
+            raise
+    else:
+        runtime = build_runtime(decision)
     try:
         logger.getChild('entrypoint').info('engine bootstrap initialized mode=%s', config.mode.value)
         logger.getChild('entrypoint').info(
@@ -30,9 +40,9 @@ def compose_runtime(config: EngineConfig | None = None) -> EngineRuntime:
     return runtime
 
 
-def run_engine(config: EngineConfig | None = None) -> int:
+def run_engine(config: EngineConfig | None = None, *, session_factory: SessionFactory | None = None) -> int:
     """Own the synchronous run/shutdown pair; propagate failures/cancellation."""
-    runtime = compose_runtime(config)
+    runtime = compose_runtime(config) if session_factory is None else compose_runtime(config, session_factory=session_factory)
     try:
         return runtime.run()
     finally:
